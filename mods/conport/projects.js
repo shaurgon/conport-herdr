@@ -3,8 +3,15 @@
 // absolute git directory they share.
 import { trimSlash } from './git.js'
 import { localSpaces } from './session.js'
+import { LOCAL_SETTINGS_FILE, resolveSettingsVerdict, SETTINGS_FILE } from './settings.js'
 
 /** @import { PaneInfo, SpaceInfo } from 'herdr' */
+/** @import { FileText } from './settings.js' */
+
+/**
+ * Herdr's `exec`, as far as the projects need it.
+ * @typedef {(command: string, args: string[], options?: {timeout?: number}) => Promise<{code: number}>} Exec
+ */
 
 /**
  * A space of this machine with the live folders of its panes.
@@ -18,18 +25,92 @@ import { localSpaces } from './session.js'
  */
 
 /**
- * A folder of the spaces that is in no repository, and why it is not a project.
+ * A folder of the spaces that is in no repository, or one git failed on, and why it is not a
+ * project.
  * @typedef {{folder: string, spaces: string[], reason: string}} PlainFolder
  */
 
 /**
- * The ConPort project of a repository and where it was read: the repository's settings or the
- * binding the person kept.
- * @typedef {{project: string | null, source: 'repository' | 'stored' | null}} Binding
+ * What git said of a folder: its absolute git directory, null when the folder is in no
+ * repository, `{failed}` with the line to show when git failed otherwise.
+ * @typedef {string | null | {failed: string}} GitDirAnswer
+ */
+
+/**
+ * The texts the ConPort project of a repository is found from: `.conport.json` and
+ * `.conport.local.json` of its main checkout, whether git ignores the personal one (null when
+ * it is not there or git cannot tell), the old place `.claude/settings.local.json` and
+ * ~/.config/conport/.env; `mainCheckout` is false for a submodule or a bare repository, whose
+ * files are not read (true when left out).
+ * @typedef {{shared: FileText, local: FileText, localIgnored: boolean | null, legacy: string | null, userEnv: string | null, mainCheckout?: boolean}} BindingTexts
+ */
+
+/**
+ * The ConPort project of a repository and where it was read: its settings files (`file`), the
+ * old place `.claude/settings.local.json` (`repository`) or the binding the person kept
+ * (`stored`); the lines the settings rules tell, whether a broken settings file keeps every
+ * source from naming the project (`blocked`), and whether the repository has a main checkout
+ * whose files were read (`mainCheckout`).
+ * @typedef {{project: string | null, source: 'file' | 'repository' | 'stored' | null, lines: string[], blocked: boolean, mainCheckout: boolean}} Binding
  */
 
 /** Why a folder without git is not a project. */
 export const NO_GIT = 'Folder without git — nothing to run'
+
+/** The note of the card that asks for the project of a repository whose files name none. */
+export const NO_SETTINGS_NOTE = 'The repository has no .conport.json with project_name. The mod remembers the project for this repository.'
+
+/** The note of that card for a repository without a main checkout, whose files are not read. */
+export const NO_MAIN_CHECKOUT_NOTE =
+  'This repository is a submodule or a worktree of a bare repository: ConPort settings files are not read here. Bind a project below.'
+
+/**
+ * What `git rev-parse --path-format=absolute --git-common-dir` answered for a folder, as
+ * `mergeProjects` takes it: the git directory; null when the folder is in no repository (or git
+ * printed nothing); `{failed}` with `git failed (<first line of the error>): ConPort settings
+ * were not read` for any other failure, so that the folder names no project and nothing stands
+ * in for its settings.
+ * @param {{code: number, stdout?: string, stderr?: string}} answer
+ * @returns {GitDirAnswer}
+ */
+export function gitDirOf(answer) {
+  const out = String(answer?.stdout ?? '').trim()
+  if (answer?.code === 0) return out === '' ? null : out
+  const error = String(answer?.stderr ?? '')
+  if (/not a git repository/i.test(error)) return null
+  const first = error.split('\n').map((line) => line.trim()).find(Boolean) ?? 'unknown error'
+  return { failed: `git failed (${first}): ConPort settings were not read` }
+}
+
+/**
+ * What git said of `folder` (`gitDirOf`), whatever language git speaks. Herdr's `exec` takes no
+ * environment, so a git with translations says "not a git repository" in the person's language
+ * and `gitDirOf` reads it as a failure. A refusal is therefore checked against the disk: when
+ * neither the folder nor any folder above it up to the root holds a `.git` entry (looked for with
+ * Herdr's `readTextFile`: a file is read, a folder rejects with EISDIR), the folder is outside git
+ * — null — whatever the text. A `.git` that is there, or one that cannot be looked at, keeps the
+ * refusal. A path through a file (`ENOTDIR`) counts as absent, as one that is not there.
+ * @param {GitDirAnswer} answer
+ * @param {string} folder
+ * @param {(path: string) => Promise<string | null>} read
+ * @returns {Promise<GitDirAnswer>}
+ */
+export async function settleGitDir(answer, folder, read) {
+  if (answer === null || typeof answer === 'string') return answer
+  // The root is the empty folder name: its `.git` is `/.git`.
+  let dir = trimSlash(folder)
+  for (;;) {
+    try {
+      if ((await read(`${dir}/.git`)) !== null) return answer
+    } catch (error) {
+      const code = readErrorCode(error)
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') return answer
+    }
+    const cut = dir.lastIndexOf('/')
+    if (cut < 0) return null
+    dir = dir.slice(0, cut)
+  }
+}
 
 /**
  * Each space of this machine with the live folders of its panes, `{id, name, folders}`; a space
@@ -53,19 +134,20 @@ export function spaceFolders(spaces, panes) {
   })
 }
 
-/** The main checkout of a repository by its git directory: the folder that holds `.git`. */
-const rootOf = (/** @type {string} */ gitDir) => {
-  const dir = trimSlash(gitDir)
-  return dir.endsWith('/.git') ? dir.slice(0, -'/.git'.length) : dir
-}
+/**
+ * The main checkout of a repository by its git directory: the folder that holds `.git`; the git
+ * directory itself for a repository without one.
+ */
+const rootOf = (/** @type {string} */ gitDir) => mainRootOf(gitDir) ?? trimSlash(gitDir)
 
 /**
  * The projects of `spaces` (`spaceFolders`), merged by git directory, in the order they first
  * appear: `{gitDir, root, name, spaces, folders}`; and the folders without git, `{folder,
- * spaces, reason}`. `gitDirs` maps each folder to the absolute git directory git printed for it,
- * or null when the folder is in no repository.
+ * spaces, reason}`. `gitDirs` maps each folder to what git said of it (`gitDirOf`): the absolute
+ * git directory, null when the folder is in no repository, `{failed}` when git failed on it —
+ * such a folder is set apart with that line as its reason.
  * @param {SpaceFolders[]} spaces
- * @param {Record<string, string | null>} gitDirs
+ * @param {Record<string, GitDirAnswer>} gitDirs
  * @returns {{projects: Project[], plain: PlainFolder[]}}
  */
 export function mergeProjects(spaces, gitDirs) {
@@ -99,9 +181,12 @@ export function mergeProjects(spaces, gitDirs) {
           folders: []
         }
         add(projects, project, space.id, folder)
-      } else if (found === null) {
-        const item = plain.find((p) => p.folder === folder) ?? { folder, spaces: [], reason: NO_GIT }
-        add(plain, item, space.id)
+      } else {
+        const failed = /** @type {{failed?: unknown} | null | undefined} */ (found)?.failed
+        if (found !== null && typeof failed !== 'string') continue
+        /** @type {PlainFolder} */
+        const fresh = { folder, spaces: [], reason: typeof failed === 'string' ? failed : NO_GIT }
+        add(plain, plain.find((p) => p.folder === folder) ?? fresh, space.id)
       }
     }
   }
@@ -123,21 +208,178 @@ export function pickProject(projects, { focusedSpace, last }) {
 }
 
 /**
- * The ConPort project of a repository: CONPORT_PROJECT_NAME of its `.claude/settings.local.json`
- * (`settingsText`, null when there is none), else the binding kept in the shared state.
- * @param {string | null} settingsText
- * @param {unknown} shared
- * @returns {Binding}
+ * The main checkout of a repository by its git directory, the folder its settings files are
+ * in; null for a submodule (`.git/modules/<name>`) or a bare repository (`<repo>.git`), which
+ * have none.
+ * @param {string} gitDir
+ * @returns {string | null}
  */
-export function projectBinding(settingsText, shared) {
-  if (typeof settingsText === 'string') {
+export function mainRootOf(gitDir) {
+  const dir = trimSlash(gitDir)
+  return dir.endsWith('/.git') ? dir.slice(0, -'/.git'.length) : null
+}
+
+/** The error codes of the `os error N` Herdr's file reading rejects with. */
+const OS_ERRORS = /** @type {Record<string, string>} */ ({ 2: 'ENOENT', 13: 'EACCES', 20: 'ENOTDIR', 21: 'EISDIR' })
+
+/**
+ * The error code of a file Herdr could not read, from the `(os error N)` its rejection ends with
+ * (`herdr.readTextFile`: Is a directory (os error 21)); EIO for any other.
+ * @param {unknown} error
+ * @returns {string}
+ */
+export function readErrorCode(error) {
+  const text = error instanceof Error ? error.message : String(error)
+  const number = /\(os error (\d+)\)/.exec(text)?.[1]
+  return (number !== undefined && OS_ERRORS[number]) || 'EIO'
+}
+
+/** The limit of each program the settings ask, as the conport plugin bounds its git calls. */
+export const SETTINGS_GIT_TIMEOUT_MS = 5000
+
+/**
+ * XDG_CONFIG_HOME of the person's environment, or null when it is not set. A mod has no
+ * environment of its own; Herdr's `exec` runs a program with the person's.
+ * @param {(command: string, args: string[], options?: {timeout?: number}) => Promise<{code: number, stdout: string}>} exec
+ * @returns {Promise<string | null>}
+ */
+export async function readConfigHome(exec) {
+  try {
+    const answer = await exec('printenv', ['XDG_CONFIG_HOME'], { timeout: SETTINGS_GIT_TIMEOUT_MS })
+    const value = answer.code === 0 ? answer.stdout.replace(/\r?\n$/, '') : ''
+    return value === '' ? null : value
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether git ignores the personal settings file of the checkout `root` and does not track it:
+ * true, false, or null when git cannot tell.
+ * @param {Exec} exec
+ * @param {string} root
+ * @returns {Promise<boolean | null>}
+ */
+async function localIgnored(exec, root) {
+  const limit = { timeout: SETTINGS_GIT_TIMEOUT_MS }
+  try {
+    const tracked = await exec('git', ['-C', root, 'ls-files', '--error-unmatch', '--', LOCAL_SETTINGS_FILE], limit)
+    if (tracked.code === 0) return false
+    if (tracked.code !== 1) return null
+    const ignored = await exec('git', ['-C', root, 'check-ignore', '-q', '--', LOCAL_SETTINGS_FILE], limit)
+    return ignored.code === 0 ? true : ignored.code === 1 ? false : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The texts the ConPort project of a repository is found from (`projectBinding`): its
+ * `.conport.json` and `.conport.local.json` in the main checkout, the old place
+ * `.claude/settings.local.json`, and `conport/.env` of the config folder (`configHome`, the
+ * value of XDG_CONFIG_HOME, else `<home>/.config`). A file that is not there — absent, or a
+ * path through a file (`ENOENT`, `ENOTDIR`) — is null; a settings file that is there but
+ * cannot be read is `{error}`. git is asked whether the personal file is ignored only when it
+ * is there. A repository without a main checkout reads no file of its own (`mainCheckout`
+ * false).
+ * @param {{read: (path: string) => Promise<string | null>, exec: Exec, gitDir: string, home: string, configHome?: string | null}} where
+ * @returns {Promise<BindingTexts>}
+ */
+export async function readBindingTexts({ read, exec, gitDir, home, configHome = null }) {
+  /** @returns {Promise<FileText>} */
+  const settingsFile = async (/** @type {string} */ path) => {
     try {
-      const value = JSON.parse(settingsText)?.env?.CONPORT_PROJECT_NAME
-      if (typeof value === 'string' && value.trim() !== '') return { project: value.trim(), source: 'repository' }
-    } catch {
-      // A settings file that is no JSON names no project.
+      return await read(path)
+    } catch (error) {
+      const code = readErrorCode(error)
+      return code === 'ENOENT' || code === 'ENOTDIR' ? null : { error: code }
     }
   }
-  if (typeof shared === 'string' && shared.trim() !== '') return { project: shared.trim(), source: 'stored' }
-  return { project: null, source: null }
+  /** @returns {Promise<string | null>} */
+  const plainFile = async (/** @type {string} */ path) => {
+    try {
+      return await read(path)
+    } catch {
+      return null
+    }
+  }
+  const root = mainRootOf(gitDir)
+  const config = typeof configHome === 'string' && configHome !== '' ? trimSlash(configHome) : `${trimSlash(home)}/.config`
+  const userEnv = plainFile(`${config}/conport/.env`)
+  if (root === null) {
+    return { shared: null, local: null, localIgnored: null, legacy: null, userEnv: await userEnv, mainCheckout: false }
+  }
+  const [shared, local, legacy] = await Promise.all([
+    settingsFile(`${root}/${SETTINGS_FILE}`),
+    settingsFile(`${root}/${LOCAL_SETTINGS_FILE}`),
+    plainFile(`${root}/.claude/settings.local.json`)
+  ])
+  return {
+    shared,
+    local,
+    localIgnored: local === null ? null : await localIgnored(exec, root),
+    legacy,
+    userEnv: await userEnv,
+    mainCheckout: true
+  }
 }
+
+/**
+ * CONPORT_PROJECT_NAME of the old place, `env` of `.claude/settings.local.json`, or null.
+ * @param {string | null} text
+ * @returns {string | null}
+ */
+function legacyName(text) {
+  if (typeof text !== 'string') return null
+  try {
+    const value = JSON.parse(text)?.env?.CONPORT_PROJECT_NAME
+    return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
+  } catch {
+    // An old settings file that is no JSON names no project.
+    return null
+  }
+}
+
+/**
+ * The ConPort project of a repository: `project_name` of its `.conport.json` and
+ * `.conport.local.json` by the settings rules, else CONPORT_PROJECT_NAME of the old place
+ * `.claude/settings.local.json`, else the binding kept in the shared state (`stored`). No
+ * environment variable enters the rules — the mod's process is Herdr's — and the old place is
+ * read after them, as in the Orca plugin: it is no variable the file overrides, so it gives no
+ * line. A settings file that is there but broken names no project, and nothing stands in for it
+ * (`blocked`). `lines` are what the rules tell about the files.
+ * @param {BindingTexts} texts
+ * @param {unknown} stored
+ * @returns {Binding}
+ */
+export function projectBinding({ shared, local, localIgnored, legacy, userEnv, mainCheckout = true }, stored) {
+  const verdict = resolveSettingsVerdict({ shared, local, localIgnored, env: {}, explicit: null, userEnv })
+  const { lines, blocked } = verdict
+  if (verdict.project !== null) return { project: verdict.project, source: 'file', lines, blocked, mainCheckout }
+  const name = blocked ? null : legacyName(legacy)
+  if (name !== null) return { project: name, source: 'repository', lines, blocked, mainCheckout }
+  if (!blocked && typeof stored === 'string' && stored.trim() !== '') {
+    return { project: stored.trim(), source: 'stored', lines, blocked, mainCheckout }
+  }
+  return { project: null, source: null, lines, blocked, mainCheckout }
+}
+
+/**
+ * What the panel shows of a binding: the card of the settings lines (`settings`), the card that
+ * asks for the project (`bind`) with its note (`bindNote`, null without the card), the epics
+ * and tasks of the project (`lists`). A broken settings file shows its lines only: the person
+ * fixes the file, a remembered project would not count. A repository without a main checkout
+ * says that its settings files are not read, not that it has none.
+ * @param {Binding} binding
+ * @returns {{settings: boolean, bind: boolean, bindNote: string | null, lists: boolean}}
+ */
+export function bindingParts(binding) {
+  const bind = !binding.blocked && binding.project === null
+  return {
+    settings: binding.lines.length > 0,
+    bind,
+    bindNote: bind ? (binding.mainCheckout === false ? NO_MAIN_CHECKOUT_NOTE : NO_SETTINGS_NOTE) : null,
+    lists: binding.project !== null
+  }
+}
+

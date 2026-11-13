@@ -23,7 +23,17 @@ import {
 import { gitDirArgs } from './git.js'
 import { DEFAULT_ROLES, harnessChoices } from './harness.js'
 import { handToAgent, readPlace, startEpic } from './launch.js'
-import { mergeProjects, pickProject, projectBinding, spaceFolders } from './projects.js'
+import {
+  bindingParts,
+  gitDirOf,
+  mergeProjects,
+  pickProject,
+  projectBinding,
+  readBindingTexts,
+  readConfigHome,
+  settleGitDir,
+  spaceFolders
+} from './projects.js'
 import { refusalLine, thrownRefusal } from './refusals.js'
 import {
   epicState,
@@ -61,7 +71,7 @@ import { CLI_VERSION, MOD_VERSION } from './version.js'
 /** @import { Epic, EpicList, EpicTabs, EpicTask, TaskList, TaskTabs } from './cli.js' */
 /** @import { Place } from './git.js' */
 /** @import { KnownAgent, RoleKey, Roles } from './harness.js' */
-/** @import { Binding, Project } from './projects.js' */
+/** @import { Binding, GitDirAnswer, Project } from './projects.js' */
 /** @import { Ok, Refusal, Result } from './refusals.js' */
 /** @import { Sheet, Subagents, Tab } from './screen.js' */
 /** @import { HoldEntry } from './session.js' */
@@ -117,8 +127,9 @@ export default class ConportMod extends View {
     this.bindDraft.on('submit', (_event, cx) => this.rememberProject(cx))
 
     /**
-     * The absolute git directory of each folder of the spaces, null for one outside git.
-     * @type {Record<string, string | null>}
+     * What git said of each folder of the spaces (`gitDirOf`): its absolute git directory, null
+     * for one outside git, `{failed}` for one git failed on.
+     * @type {Record<string, GitDirAnswer>}
      */
     this.gitDirs = {}
     this.reading = true
@@ -205,16 +216,21 @@ export default class ConportMod extends View {
     this.known = null
     cx.notify()
     const folders = unique(spaceFolders(spaces(), panes()).flatMap((space) => space.folders))
-    /** @type {Record<string, string | null>} */
+    /** @type {Record<string, GitDirAnswer>} */
     const dirs = {}
     await Promise.all(
       folders.map(async (folder) => {
+        /** @type {GitDirAnswer} */
+        let answer
         try {
-          const answer = await exec('git', gitDirArgs(folder))
-          dirs[folder] = answer.code === 0 && answer.stdout.trim() !== '' ? answer.stdout.trim() : null
-        } catch {
-          // A folder that is gone is neither a project nor a folder without git.
+          answer = gitDirOf(await exec('git', gitDirArgs(folder)))
+        } catch (error) {
+          // git did not start (not installed): a failure like any other, settled below — outside
+          // git when no .git is up to the root, else the folder names no project and says why.
+          answer = gitDirOf({ code: -1, stderr: rejectionText(error) })
         }
+        // git speaks the person's language here: a refusal with no .git up to the root is outside git.
+        dirs[folder] = await settleGitDir(answer, folder, readTextFile)
       })
     )
     this.gitDirs = dirs
@@ -268,14 +284,15 @@ export default class ConportMod extends View {
     cx.notify()
     const project = this.current()
     if (project === null) return
-    let settings = null
-    try {
-      settings = await readTextFile(`${project.root}/.claude/settings.local.json`)
-    } catch {
-      settings = null
-    }
+    const texts = await readBindingTexts({
+      read: readTextFile,
+      exec,
+      gitDir: project.gitDir,
+      home: home(),
+      configHome: await readConfigHome(exec)
+    })
     if (mine !== this.projectLoad) return
-    this.binding = projectBinding(settings, shared(bindingKey(project.gitDir)))
+    this.binding = projectBinding(texts, shared(bindingKey(project.gitDir)))
     cx.notify()
     if (this.binding.project === null) return
     const [epics, tasks] = await Promise.all([
@@ -740,7 +757,10 @@ export default class ConportMod extends View {
     if (this.known && this.known.ok === false) out.push(ui.refusal(this.known.error))
     if (this.reading || project === null) return out
     if (this.binding === null) return [...out, ui.dim('Loading the ConPort project…')]
-    if (this.binding.project === null) return [...out, this.bindCard(ui)]
+    const shown = bindingParts(this.binding)
+    if (shown.settings) out.push(this.settingsCard(ui))
+    if (shown.bind) return [...out, this.bindCard(ui, shown.bindNote)]
+    if (!shown.lists) return out
     if (this.epics === null) return [...out, ui.dim('Loading epics and tasks…')]
     if (this.epics.ok === false) return [...out, ui.refusal(this.epics.error)]
     if (this.sheet !== null) return [...out, this.sheetCard(ui)]
@@ -749,15 +769,26 @@ export default class ConportMod extends View {
     return [...out, ...this.sections(ui)]
   }
 
-  /** @param {Parts} ui */
-  bindCard(ui) {
+  /**
+   * @param {Parts} ui
+   * @param {string} note
+   */
+  bindCard(ui, note) {
     return ui.card([
       ui.title('ConPort project'),
       ui.text(refusalLine({ code: 'no_project' })),
-      ui.dim("The repository's .claude/settings.local.json has no CONPORT_PROJECT_NAME. The mod remembers the project for this repository."),
+      ui.dim(note),
       ui.input(this.bindDraft),
       h_flex().child(ui.button('bind', 'Remember', { primary: true, onClick: (_event, cx) => this.rememberProject(cx) }))
     ])
+  }
+
+  /**
+   * What the ConPort settings files of the repository tell, drawn while the project is shown.
+   * @param {Parts} ui
+   */
+  settingsCard(ui) {
+    return ui.card([ui.title('ConPort settings'), ...this.binding.lines.map((line) => ui.text(line))])
   }
 
   /**

@@ -1,0 +1,16 @@
+{
+  "herdr": {
+    "app": "0.1.15"
+  },
+  "readTextFile(<a folder>)": {
+    "rejected": "`herdr.readTextFile`: Is a directory (os error 21)",
+    "code": null
+  },
+  "readTextFile(<a file with mode 000>)": {
+    "rejected": "`herdr.readTextFile`: Permission denied (os error 13)",
+    "code": null
+  },
+  "readTextFile(<no such file>)": {
+    "resolved": null
+  }
+}

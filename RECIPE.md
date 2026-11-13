@@ -26,16 +26,29 @@ The panel is a column the full height of the window, 320px wide on the right
    picker under it: a search field `Find project`, one row per project (name,
    and its folder with the home folder as `~`, `· in focus` for the project of
    the focused space; the chosen one on `selected`), then the folders without
-   git greyed out with `Folder without git — nothing to run`, and, when the
-   binding is the mod's own, **Change ConPort project**.
+   git greyed out with `Folder without git — nothing to run` (whatever language
+   git refused in, when neither the folder nor one above it holds `.git`; a
+   folder git failed on otherwise, with
+   `git failed (<first line of the error>): ConPort settings were not read`:
+   it names no project), and, when the binding is the mod's own,
+   **Change ConPort project**.
 2. A 1px rule in `border`.
 3. **Body**, scrolling, 10px padding, 10px between parts:
    - a refusal, when there is one: a box with a 1px `blocked` border and
      `blocked` text, one line of what is wrong ` — ` one action that ends
      with a period;
    - a notice after a start or a hand-off: a box with an `accent` border;
+   - what the repository's ConPort settings files tell, when they tell
+     anything: a card `ConPort settings` with one line each, as the conport
+     plugin words them (`.conport.json is not valid JSON (line 3, column 1): fix it`);
+     a settings file that is there but broken names no project, and the body
+     ends with this card;
    - **no ConPort project** for the repository: a card `ConPort project` with
      `The repository has no ConPort project — enter the project's name or handle.`,
+     the `dim` line
+     `The repository has no .conport.json with project_name. The mod remembers the project for this repository.`
+     (for a submodule or a worktree of a bare repository
+     `This repository is a submodule or a worktree of a bare repository: ConPort settings files are not read here. Bind a project below.`),
      a field `name or handle` and **Remember**;
    - **the tabs**: three chips 24px high, `Ready to run · <n>`,
      `Prepare · <n>`, `Tasks · <n>`, the chosen one with an `accent` border
@@ -92,9 +105,13 @@ color is a token of `theme()`: the panel follows the person's theme.
   folders of its panes; folders of one repository — its main checkout and its
   worktrees, `~/.herdr/worktrees/` included — merge into one project by their
   absolute git directory. The project of the focused space is chosen first,
-  else the last chosen. Its ConPort project is `env.CONPORT_PROJECT_NAME` in the
-  repository's `.claude/settings.local.json`, else the handle or name the person
-  typed, kept by the mod for that repository.
+  else the last chosen. Its ConPort project is `project_name` of
+  `.conport.json` in the main checkout, `.conport.local.json` beside it
+  overriding it (the rules of the conport plugin, held by its examples), else
+  `env.CONPORT_PROJECT_NAME` of the old place `.claude/settings.local.json`,
+  else the handle or name the person typed, kept by the mod for that
+  repository. A submodule or a bare repository has no main checkout and only
+  the kept handle.
 - **Starting an epic.** **Start** first checks everything that can refuse —
   the harness is installed, the repository's checkouts and the branches of the
   epic, and the task the CLI writes for the lead session — and only then makes a
@@ -166,14 +183,23 @@ color is a token of `theme()`: the panel follows the person's theme.
   `prompt epic|prepare|task`, which reach the ConPort service over the network
   with the key the CLI reads itself; `git` — `worktree list --porcelain`,
   `for-each-ref`, `rev-parse --path-format=absolute --git-common-dir`,
-  `worktree add` (timeout 600 s). It reads `.claude/settings.local.json` of the
-  repository. No art.
+  `worktree add` (timeout 600 s), and, only when `.conport.local.json` is
+  there, `ls-files --error-unmatch` and `check-ignore -q` of it (timeout 5 s
+  each); `printenv XDG_CONFIG_HOME` (timeout 5 s), since a mod has no
+  environment of its own. It reads `.conport.json`, `.conport.local.json` and
+  `.claude/settings.local.json` of the repository's main checkout, and
+  `conport/.env` in `$XDG_CONFIG_HOME` (else `~/.config`) only to tell whether
+  it sets `CONPORT_PROJECT_NAME`. `readTextFile` answers null for a file that
+  is not there and rejects with `… (os error N)` for one it cannot read (a
+  folder: 21, no permission: 13); the mod names that `EISDIR`, `EACCES`, else
+  `EIO`, and takes `ENOENT` (2) and `ENOTDIR` (20) as a file that is not
+  there. No art.
 
 ## Watch out
 
 - The mod runs programs and reaches the network: tell the person before adding
-  it. It never handles the ConPort API key; the CLI reads it from its
-  environment or `~/.config/conport/.env`.
+  it. It never uses, shows or sends the ConPort API key; the CLI reads it from
+  its environment or `~/.config/conport/.env`.
 - Pass an agent's task as the last element of `argv`, never in `task`: Herdr
   drops the first message of an agent not ready within 60 seconds, and Claude
   Code in a new folder first asks whether to trust it.
@@ -205,8 +231,10 @@ color is a token of `theme()`: the panel follows the person's theme.
 - `herdr-app check ~/.config/herdr-app/mods/conport` passes.
 - The panel opens on the right with the project of the focused space and its
   three tabs with counts; the footer shows the mod and CLI versions.
-- A repository without `CONPORT_PROJECT_NAME` asks for a handle; after
-  **Remember** its epics and tasks are listed.
+- A repository whose `.conport.json` has `project_name` lists that project's
+  epics and tasks; one without it (and without `CONPORT_PROJECT_NAME` in the
+  old place) asks for a handle; after **Remember** its epics and tasks are
+  listed.
 - Opening an epic shows its harness chips, four role fields filled with the
   `conport:sdd-*` types, and its tasks with counts.
 - **Start** opens a space `epic-<N>` with a tab `lead` in

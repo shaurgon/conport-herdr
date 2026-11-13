@@ -32,8 +32,10 @@ herdr-app check ~/.config/herdr-app/mods/conport
 ```
 
 The panel appears on the right of the window. A repository whose
-`.claude/settings.local.json` has `env.CONPORT_PROJECT_NAME` opens its ConPort
-project; any other asks for the project's handle once.
+`.conport.json` has `project_name` opens its ConPort project
+(`.conport.local.json` beside it overrides it; an older repository's
+`env.CONPORT_PROJECT_NAME` in `.claude/settings.local.json` still works); any
+other asks for the project's handle once.
 
 ## Update and removal
 
