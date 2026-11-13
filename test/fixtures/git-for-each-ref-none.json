@@ -1,0 +1,5 @@
+{
+  "command": "git -C <root> for-each-ref refs/heads/epic-415 'refs/heads/epic415/*'",
+  "code": 0,
+  "stdout": ""
+}

@@ -1,0 +1,323 @@
+{
+  "spaces": [
+    {
+      "id": "sp181d9986e6b719db33e8a6e91303098d",
+      "index": 1,
+      "name": "notes",
+      "named": false,
+      "folder": "~",
+      "machine": null,
+      "branch": null,
+      "active": true,
+      "status": "idle",
+      "tabs": [
+        {
+          "id": "tbf2da628b2fc025d55d025aacefac146d",
+          "index": 1,
+          "name": "Claude Code",
+          "named": true,
+          "active": true,
+          "status": "idle",
+          "panes": 1,
+          "zoomed": false,
+          "settled": false,
+          "settled_at": null,
+          "changed_at": 1794506161449,
+          "working_since": null
+        }
+      ]
+    },
+    {
+      "id": "spedbe3f924f2f331e70b470d09ac8ba38",
+      "index": 2,
+      "name": "epic-412",
+      "named": true,
+      "folder": "~/.herdr/worktrees/acme-app/epic-412",
+      "machine": null,
+      "branch": "epic-412",
+      "active": false,
+      "status": "blocked",
+      "tabs": [
+        {
+          "id": "tb4123a43f532f5bab899b28a3a40af8df",
+          "index": 1,
+          "name": "lead",
+          "named": true,
+          "active": false,
+          "status": "blocked",
+          "panes": 1,
+          "zoomed": false,
+          "settled": false,
+          "settled_at": null,
+          "changed_at": 1794506690074,
+          "working_since": null
+        },
+        {
+          "id": "tb5379d31b7bba62ddfd2aec407855a67f",
+          "index": 2,
+          "name": "lead",
+          "named": true,
+          "active": true,
+          "status": "idle",
+          "panes": 1,
+          "zoomed": false,
+          "settled": false,
+          "settled_at": null,
+          "changed_at": 1794506638207,
+          "working_since": null
+        }
+      ]
+    }
+  ],
+  "agents": [
+    {
+      "address": "t6",
+      "pane": "p7e1b2b97c18a879f7991205665266900",
+      "space": "sp181d9986e6b719db33e8a6e91303098d",
+      "space_name": "notes",
+      "tab": "tbf2da628b2fc025d55d025aacefac146d",
+      "tab_index": 1,
+      "tab_name": "Claude Code",
+      "status": "idle",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "title": "Notes",
+      "seq": 20,
+      "pinned": false,
+      "focused": true
+    },
+    {
+      "address": "t8",
+      "pane": "p455c2725d4877e4e6820ff75feb7b24b",
+      "space": "spedbe3f924f2f331e70b470d09ac8ba38",
+      "space_name": "epic-412",
+      "tab": "tb4123a43f532f5bab899b28a3a40af8df",
+      "tab_index": 1,
+      "tab_name": "lead",
+      "status": "blocked",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "title": "Delivery test",
+      "seq": 27,
+      "pinned": false,
+      "focused": false
+    },
+    {
+      "address": "t9",
+      "pane": "pacd436d35763b95f8180619a24713ad0",
+      "space": "spedbe3f924f2f331e70b470d09ac8ba38",
+      "space_name": "epic-412",
+      "tab": "tb5379d31b7bba62ddfd2aec407855a67f",
+      "tab_index": 2,
+      "tab_name": "lead",
+      "status": "idle",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "title": "Delivery test",
+      "seq": 25,
+      "pinned": false,
+      "focused": false
+    }
+  ],
+  "panes": [
+    {
+      "pane": "p7e1b2b97c18a879f7991205665266900",
+      "terminal": "t6",
+      "tab": "tbf2da628b2fc025d55d025aacefac146d",
+      "title": "Notes",
+      "cwd": "~/notes",
+      "branch": null,
+      "status": "idle",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "focused": true,
+      "zoomed": false,
+      "movable": false
+    },
+    {
+      "pane": "p455c2725d4877e4e6820ff75feb7b24b",
+      "terminal": "t8",
+      "tab": "tb4123a43f532f5bab899b28a3a40af8df",
+      "title": "Delivery test",
+      "cwd": "~/.herdr/worktrees/acme-app/epic-412",
+      "branch": "epic-412",
+      "status": "blocked",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "focused": false,
+      "zoomed": false,
+      "movable": false
+    },
+    {
+      "pane": "pacd436d35763b95f8180619a24713ad0",
+      "terminal": "t9",
+      "tab": "tb5379d31b7bba62ddfd2aec407855a67f",
+      "title": "Delivery test",
+      "cwd": "~/.herdr/worktrees/acme-app/epic-412",
+      "branch": "epic-412",
+      "status": "idle",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "focused": false,
+      "zoomed": false,
+      "movable": false
+    }
+  ],
+  "terminals": [
+    {
+      "address": "t6",
+      "state": "live",
+      "status": "done",
+      "report": {
+        "app": "claude-code",
+        "state": "done"
+      },
+      "cwd": "~/notes",
+      "labels": {
+        "herdr.seen": "12",
+        "herdr.space": "sp181d9986e6b719db33e8a6e91303098d",
+        "herdr.tab": "tbf2da628b2fc025d55d025aacefac146d",
+        "where": "notes / Claude Code"
+      },
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "parent": null,
+      "exit_code": null,
+      "reason": null,
+      "turn": 12,
+      "title": "Notes",
+      "name": null,
+      "template": null
+    },
+    {
+      "address": "t8",
+      "state": "live",
+      "status": "blocked",
+      "report": {
+        "app": "claude-code",
+        "kind": "question",
+        "msg": "answer: Is this a test? (Yes · No)",
+        "state": "blocked"
+      },
+      "cwd": "~/.herdr/worktrees/acme-app/epic-412",
+      "labels": {
+        "herdr.seen": "1",
+        "herdr.space": "spedbe3f924f2f331e70b470d09ac8ba38",
+        "herdr.tab": "tb4123a43f532f5bab899b28a3a40af8df",
+        "where": "epic-412 / lead"
+      },
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "parent": null,
+      "exit_code": null,
+      "reason": null,
+      "turn": 2,
+      "title": "Delivery test",
+      "name": null,
+      "template": null
+    },
+    {
+      "address": "t9",
+      "state": "live",
+      "status": "done",
+      "report": {
+        "app": "claude-code",
+        "state": "done"
+      },
+      "cwd": "~/.herdr/worktrees/acme-app/epic-412",
+      "labels": {
+        "herdr.seen": "1",
+        "herdr.space": "spedbe3f924f2f331e70b470d09ac8ba38",
+        "herdr.tab": "tb5379d31b7bba62ddfd2aec407855a67f",
+        "where": "epic-412 / lead"
+      },
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "parent": null,
+      "exit_code": null,
+      "reason": null,
+      "turn": 1,
+      "title": "Delivery test",
+      "name": null,
+      "template": null
+    }
+  ]
+}

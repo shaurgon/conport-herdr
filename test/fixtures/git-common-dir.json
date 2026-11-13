@@ -1,0 +1,12 @@
+{
+  "command": "git -C <folder> rev-parse --path-format=absolute --git-common-dir",
+  "from_root": {
+    "code": 0,
+    "stdout": "~/src/acme-app/.git\n"
+  },
+  "from_worktree": {
+    "folder": "~/.herdr/worktrees/acme-app/epic-413",
+    "code": 0,
+    "stdout": "~/src/acme-app/.git\n"
+  }
+}

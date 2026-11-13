@@ -1,0 +1,146 @@
+[
+  {
+    "harness": "claude",
+    "command": "space.new",
+    "args": {
+      "name": "epic-412",
+      "folder": "~/.herdr/worktrees/acme-app/epic-412",
+      "tab": "lead",
+      "argv": [
+        "claude",
+        "<task: 10968 characters, last line END-OF-TASK-<random>>"
+      ],
+      "machine": ""
+    },
+    "run_returned": null,
+    "made": {
+      "space": {
+        "name": "epic-412",
+        "named": true,
+        "selected": true
+      },
+      "tab": {
+        "name": "lead",
+        "named": true
+      }
+    },
+    "terminal_argv": [
+      "/bin/zsh",
+      "-lic",
+      "\"$@\"; exec \"$0\" -li",
+      "/bin/zsh",
+      "claude",
+      "<task: 10968 characters, last line END-OF-TASK-<random>>"
+    ],
+    "trust_question": {
+      "shown": true,
+      "agents_entry": false,
+      "pane_status": null,
+      "pane_program_key": "claude",
+      "answered_after_seconds": 90
+    },
+    "task_in_first_message": "identical (10968 of 10968 characters, compared with the agent's session record)",
+    "reply": "the last line, verbatim"
+  },
+  {
+    "harness": "claude",
+    "command": "tab.new",
+    "args": {
+      "space": "<id of space epic-412>",
+      "name": "lead",
+      "folder": "~/.herdr/worktrees/acme-app/epic-412",
+      "argv": [
+        "claude",
+        "<task: 10968 characters, last line END-OF-TASK-<random>>"
+      ]
+    },
+    "run_returned": null,
+    "made": {
+      "tab": {
+        "name": "lead",
+        "named": true,
+        "second_tab_with_this_name": true
+      }
+    },
+    "trust_question": {
+      "shown": false,
+      "why": "the folder was trusted by the first launch"
+    },
+    "task_in_first_message": "identical (10968 of 10968 characters, compared with the agent's session record)",
+    "reply": "the last line, verbatim"
+  },
+  {
+    "harness": "codex",
+    "command": "space.new",
+    "args": {
+      "name": "epic-413",
+      "folder": "~/.herdr/worktrees/acme-app/epic-413",
+      "tab": "lead",
+      "argv": [
+        "codex",
+        "--no-daemon",
+        "<task: 10968 characters, last line END-OF-TASK-<random>>"
+      ],
+      "machine": ""
+    },
+    "run_returned": null,
+    "made": {
+      "space": {
+        "name": "epic-413",
+        "named": true,
+        "selected": true
+      },
+      "tab": {
+        "name": "lead",
+        "named": true
+      }
+    },
+    "trust_question": {
+      "shown": false
+    },
+    "hooks_trust_question": {
+      "shown": false
+    },
+    "task_in_first_message": "identical (10968 of 10968 characters, compared with the agent's session record)",
+    "reply": "the last line, verbatim"
+  },
+  {
+    "harness": "codex",
+    "command": "tab.new",
+    "args": {
+      "space": "<id of space epic-413>",
+      "name": "lead",
+      "folder": "~/.herdr/worktrees/acme-app/epic-413",
+      "argv": [
+        "codex",
+        "--no-daemon",
+        "<task: 10968 characters, last line END-OF-TASK-<random>>"
+      ]
+    },
+    "run_returned": null,
+    "made": {
+      "tab": {
+        "name": "lead",
+        "named": true,
+        "second_tab_with_this_name": true
+      }
+    },
+    "trust_question": {
+      "shown": false
+    },
+    "task_in_first_message": "identical (10968 of 10968 characters, compared with the agent's session record)",
+    "reply": "the last line, verbatim"
+  },
+  {
+    "harness": "cursor",
+    "command": null,
+    "known_agent": {
+      "key": "cursor",
+      "run": [
+        "cursor-agent"
+      ],
+      "installed": false
+    },
+    "note": "not installed on the recording machine: no launch recorded"
+  }
+]

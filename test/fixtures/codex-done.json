@@ -1,0 +1,226 @@
+{
+  "spaces": [
+    {
+      "id": "sp181d9986e6b719db33e8a6e91303098d",
+      "index": 1,
+      "name": "notes",
+      "named": false,
+      "folder": "~",
+      "machine": null,
+      "branch": null,
+      "active": true,
+      "status": "idle",
+      "tabs": [
+        {
+          "id": "tbf2da628b2fc025d55d025aacefac146d",
+          "index": 1,
+          "name": "Claude Code",
+          "named": true,
+          "active": true,
+          "status": "idle",
+          "panes": 1,
+          "zoomed": false,
+          "settled": false,
+          "settled_at": null,
+          "changed_at": 1794506161449,
+          "working_since": null
+        }
+      ]
+    },
+    {
+      "id": "sp92a4e1f7d7ebb78013ee5451d64aabbf",
+      "index": 2,
+      "name": "epic-413",
+      "named": true,
+      "folder": "~/.herdr/worktrees/acme-app/epic-413",
+      "machine": null,
+      "branch": "epic-413",
+      "active": false,
+      "status": "done",
+      "tabs": [
+        {
+          "id": "tbeb6135cfe8b3960592601be3ec5f9416",
+          "index": 1,
+          "name": "lead",
+          "named": true,
+          "active": true,
+          "status": "done",
+          "panes": 1,
+          "zoomed": false,
+          "settled": false,
+          "settled_at": null,
+          "changed_at": 1794506762249,
+          "working_since": null
+        }
+      ]
+    }
+  ],
+  "agents": [
+    {
+      "address": "t6",
+      "pane": "p7e1b2b97c18a879f7991205665266900",
+      "space": "sp181d9986e6b719db33e8a6e91303098d",
+      "space_name": "notes",
+      "tab": "tbf2da628b2fc025d55d025aacefac146d",
+      "tab_index": 1,
+      "tab_name": "Claude Code",
+      "status": "idle",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "title": "Notes",
+      "seq": 20,
+      "pinned": false,
+      "focused": true
+    },
+    {
+      "address": "t10",
+      "pane": "p9726daa6b04b6d5665954555d5300bea",
+      "space": "sp92a4e1f7d7ebb78013ee5451d64aabbf",
+      "space_name": "epic-413",
+      "tab": "tbeb6135cfe8b3960592601be3ec5f9416",
+      "tab_index": 1,
+      "tab_name": "lead",
+      "status": "done",
+      "app": "codex",
+      "program": {
+        "key": "codex",
+        "name": "Codex",
+        "icon": "icons/codex.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "title": "Run delivery test | epic-413",
+      "seq": 31,
+      "pinned": false,
+      "focused": false
+    }
+  ],
+  "panes": [
+    {
+      "pane": "p7e1b2b97c18a879f7991205665266900",
+      "terminal": "t6",
+      "tab": "tbf2da628b2fc025d55d025aacefac146d",
+      "title": "Notes",
+      "cwd": "~/notes",
+      "branch": null,
+      "status": "idle",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "focused": true,
+      "zoomed": false,
+      "movable": false
+    },
+    {
+      "pane": "p9726daa6b04b6d5665954555d5300bea",
+      "terminal": "t10",
+      "tab": "tbeb6135cfe8b3960592601be3ec5f9416",
+      "title": "Run delivery test | epic-413",
+      "cwd": "~/.herdr/worktrees/acme-app/epic-413",
+      "branch": "epic-413",
+      "status": "done",
+      "app": "codex",
+      "program": {
+        "key": "codex",
+        "name": "Codex",
+        "icon": "icons/codex.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "focused": false,
+      "zoomed": false,
+      "movable": false
+    }
+  ],
+  "terminals": [
+    {
+      "address": "t6",
+      "state": "live",
+      "status": "done",
+      "report": {
+        "app": "claude-code",
+        "state": "done"
+      },
+      "cwd": "~/notes",
+      "labels": {
+        "herdr.seen": "12",
+        "herdr.space": "sp181d9986e6b719db33e8a6e91303098d",
+        "herdr.tab": "tbf2da628b2fc025d55d025aacefac146d",
+        "where": "notes / Claude Code"
+      },
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "parent": null,
+      "exit_code": null,
+      "reason": null,
+      "turn": 12,
+      "title": "Notes",
+      "name": null,
+      "template": null
+    },
+    {
+      "address": "t10",
+      "state": "live",
+      "status": "idle",
+      "report": {
+        "app": "codex",
+        "state": "idle"
+      },
+      "cwd": "~/.herdr/worktrees/acme-app/epic-413",
+      "labels": {
+        "herdr.seen": "0",
+        "herdr.space": "sp92a4e1f7d7ebb78013ee5451d64aabbf",
+        "herdr.tab": "tbeb6135cfe8b3960592601be3ec5f9416",
+        "where": "epic-413 / lead"
+      },
+      "program": {
+        "key": "codex",
+        "name": "Codex",
+        "icon": "icons/codex.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "parent": null,
+      "exit_code": null,
+      "reason": null,
+      "turn": 1,
+      "title": "Run delivery test | epic-413",
+      "name": null,
+      "template": null
+    }
+  ]
+}

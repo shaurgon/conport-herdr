@@ -1,0 +1,59 @@
+[
+  {
+    "key": "claude",
+    "name": "Claude Code",
+    "icon": "icons/claude.svg",
+    "tint": false,
+    "tile": "#1c1d21",
+    "color": "#ffffff",
+    "shell": false,
+    "agent": true,
+    "run": [
+      "claude"
+    ],
+    "installed": true
+  },
+  {
+    "key": "codex",
+    "name": "Codex",
+    "icon": "icons/codex.svg",
+    "tint": false,
+    "tile": "#1c1d21",
+    "color": "#ffffff",
+    "shell": false,
+    "agent": true,
+    "run": [
+      "codex",
+      "--no-daemon"
+    ],
+    "installed": true
+  },
+  {
+    "key": "cursor",
+    "name": "Cursor",
+    "icon": "icons/cursor.svg",
+    "tint": true,
+    "tile": "#1c1d21",
+    "color": "#ffffff",
+    "shell": false,
+    "agent": true,
+    "run": [
+      "cursor-agent"
+    ],
+    "installed": false
+  },
+  {
+    "key": "gemini",
+    "name": "Gemini",
+    "icon": "icons/gemini.svg",
+    "tint": true,
+    "tile": "#8e75b2",
+    "color": "#ffffff",
+    "shell": false,
+    "agent": true,
+    "run": [
+      "gemini"
+    ],
+    "installed": false
+  }
+]

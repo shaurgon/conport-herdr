@@ -1,0 +1,198 @@
+{
+  "spaces": [
+    {
+      "id": "sp181d9986e6b719db33e8a6e91303098d",
+      "index": 1,
+      "name": "notes",
+      "named": false,
+      "folder": "~",
+      "machine": null,
+      "branch": null,
+      "active": false,
+      "status": "done",
+      "tabs": [
+        {
+          "id": "tbf2da628b2fc025d55d025aacefac146d",
+          "index": 1,
+          "name": "Claude Code",
+          "named": true,
+          "active": true,
+          "status": "done",
+          "panes": 1,
+          "zoomed": false,
+          "settled": false,
+          "settled_at": null,
+          "changed_at": 1794506161449,
+          "working_since": null
+        }
+      ]
+    },
+    {
+      "id": "spedbe3f924f2f331e70b470d09ac8ba38",
+      "index": 2,
+      "name": "epic-412",
+      "named": true,
+      "folder": "~/.herdr/worktrees/acme-app/epic-412",
+      "machine": null,
+      "branch": "epic-412",
+      "active": true,
+      "status": null,
+      "tabs": [
+        {
+          "id": "tb4123a43f532f5bab899b28a3a40af8df",
+          "index": 1,
+          "name": "lead",
+          "named": true,
+          "active": true,
+          "status": null,
+          "panes": 1,
+          "zoomed": false,
+          "settled": false,
+          "settled_at": null,
+          "changed_at": null,
+          "working_since": null
+        }
+      ]
+    }
+  ],
+  "agents": [
+    {
+      "address": "t6",
+      "pane": "p7e1b2b97c18a879f7991205665266900",
+      "space": "sp181d9986e6b719db33e8a6e91303098d",
+      "space_name": "notes",
+      "tab": "tbf2da628b2fc025d55d025aacefac146d",
+      "tab_index": 1,
+      "tab_name": "Claude Code",
+      "status": "done",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "title": "Notes",
+      "seq": 20,
+      "pinned": false,
+      "focused": false
+    }
+  ],
+  "panes": [
+    {
+      "pane": "p7e1b2b97c18a879f7991205665266900",
+      "terminal": "t6",
+      "tab": "tbf2da628b2fc025d55d025aacefac146d",
+      "title": "Notes",
+      "cwd": "~/notes",
+      "branch": null,
+      "status": "done",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "focused": false,
+      "zoomed": false,
+      "movable": false
+    },
+    {
+      "pane": "p455c2725d4877e4e6820ff75feb7b24b",
+      "terminal": "t8",
+      "tab": "tb4123a43f532f5bab899b28a3a40af8df",
+      "title": "t8",
+      "cwd": "~/.herdr/worktrees/acme-app/epic-412",
+      "branch": "epic-412",
+      "status": null,
+      "app": null,
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": false
+      },
+      "focused": true,
+      "zoomed": false,
+      "movable": false
+    }
+  ],
+  "terminals": [
+    {
+      "address": "t6",
+      "state": "live",
+      "status": "done",
+      "report": {
+        "app": "claude-code",
+        "state": "done"
+      },
+      "cwd": "~/notes",
+      "labels": {
+        "herdr.seen": "11",
+        "herdr.space": "sp181d9986e6b719db33e8a6e91303098d",
+        "herdr.tab": "tbf2da628b2fc025d55d025aacefac146d",
+        "where": "notes / Claude Code"
+      },
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": true
+      },
+      "parent": null,
+      "exit_code": null,
+      "reason": null,
+      "turn": 12,
+      "title": "Notes",
+      "name": null,
+      "template": null
+    },
+    {
+      "address": "t8",
+      "state": "live",
+      "status": null,
+      "report": null,
+      "cwd": "~/.herdr/worktrees/acme-app/epic-412",
+      "labels": {
+        "herdr.seen": "0",
+        "herdr.space": "spedbe3f924f2f331e70b470d09ac8ba38",
+        "herdr.tab": "tb4123a43f532f5bab899b28a3a40af8df",
+        "where": "epic-412 / lead"
+      },
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": "#1c1d21",
+        "color": "#ffffff",
+        "shell": false,
+        "agent": false
+      },
+      "parent": null,
+      "exit_code": null,
+      "reason": null,
+      "turn": 0,
+      "title": "",
+      "name": null,
+      "template": null
+    }
+  ]
+}

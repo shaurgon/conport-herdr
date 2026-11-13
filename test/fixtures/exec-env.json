@@ -1,0 +1,34 @@
+{
+  "launched_by": "launchd (the app opened from the Dock/Finder, parent pid 1)",
+  "herdr": {
+    "app": "0.1.15",
+    "core": "0.1.20"
+  },
+  "npx --version": {
+    "code": 0,
+    "stdout": "11.16.0\n",
+    "stderr": ""
+  },
+  "git --version": {
+    "code": 0,
+    "stdout": "git version 2.50.1 (Apple Git-155)\n",
+    "stderr": ""
+  },
+  "command -v npx git node": {
+    "code": 0,
+    "found": {
+      "npx": true,
+      "git": true,
+      "node": true
+    }
+  },
+  "CONPORT_API_KEY": {
+    "environment": "unset",
+    "~/.config/conport/.env": "set"
+  },
+  "npx -y conport@0.8.0 epic list -p <project> --json": {
+    "code": 0,
+    "stdout_is_json": true,
+    "stderr": ""
+  }
+}

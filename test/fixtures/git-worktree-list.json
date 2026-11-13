@@ -1,0 +1,5 @@
+{
+  "command": "git -C <folder> worktree list --porcelain",
+  "code": 0,
+  "stdout": "worktree ~/src/acme-app\nHEAD ec78bda3d75d0f491ad8d9a027e22b6d25fd5fa8\nbranch refs/heads/main\n\nworktree ~/.herdr/worktrees/acme-app/epic-412\nHEAD ec78bda3d75d0f491ad8d9a027e22b6d25fd5fa8\nbranch refs/heads/epic-412\n\nworktree ~/.herdr/worktrees/acme-app/epic-413\nHEAD ec78bda3d75d0f491ad8d9a027e22b6d25fd5fa8\nbranch refs/heads/epic-413\n\n"
+}

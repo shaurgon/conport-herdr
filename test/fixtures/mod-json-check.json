@@ -1,0 +1,38 @@
+[
+  {
+    "mod.json": {
+      "place": "none"
+    },
+    "command": "herdr-app check <mod folder>",
+    "code": 0,
+    "stdout": "check passed: .\n"
+  },
+  {
+    "mod.json": {
+      "place": "none",
+      "version": "0.1.0"
+    },
+    "command": "herdr-app check <mod folder>",
+    "code": 0,
+    "stdout": "check passed: .\n",
+    "running_app_errors": []
+  },
+  {
+    "mod.json": {
+      "place": "none",
+      "version": 7
+    },
+    "command": "herdr-app check <mod folder>",
+    "code": 0,
+    "stdout": "check passed: .\n"
+  },
+  {
+    "mod.json": {
+      "place": "none",
+      "bogusfield": 1
+    },
+    "command": "herdr-app check <mod folder>",
+    "code": 0,
+    "stdout": "check passed: .\n"
+  }
+]
