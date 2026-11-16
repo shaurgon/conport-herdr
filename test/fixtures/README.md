@@ -67,8 +67,7 @@ and a last line `END-OF-TASK-<random>`.
 | `codex-exited.json` | the same for Codex quit by itself (`/quit`), beside the pane of `claude-exited.json` | probe `snap` after `hc send <terminal> /quit` |
 | `git-worktree-list.json` | the root and two checkouts under `~/.herdr/worktrees/<repo>/` | `git -C <folder> worktree list --porcelain` |
 | `git-worktree-list-detached.json` | the same with the main checkout detached | `git -C <folder> worktree list --porcelain` |
-| `git-for-each-ref-epic.json` | the branch `epic-<N>` exists | `git -C <root> for-each-ref refs/heads/epic-<N> 'refs/heads/epic<N>/*'` |
-| `git-for-each-ref-workflow.json` | only `epic<N>/…` branches exist | same |
+| `git-for-each-ref-epic.json` | the branch `epic-<N>` exists | `git -C <root> for-each-ref refs/heads/epic-<N>` |
 | `git-for-each-ref-none.json` | no branch of the epic | same |
 | `git-common-dir.json` | the same absolute git directory from the root and from a checkout | `git -C <folder> rev-parse --path-format=absolute --git-common-dir` |
 | `mod-json-check.json` | `herdr-app check` of a mod whose `mod.json` has a `version` field (and other fields) | `herdr-app check <mod folder>` |

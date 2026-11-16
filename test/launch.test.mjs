@@ -149,7 +149,7 @@ test('startEpic: git first, then the task from the CLI, then git worktree add, t
   })
   assert.deepEqual(steps(log), [
     'git worktree list --porcelain',
-    'git for-each-ref refs/heads/epic-415 refs/heads/epic415/*',
+    'git for-each-ref refs/heads/epic-415',
     'npx prompt epic',
     'git worktree add ' + W(415),
     'run space.new',
@@ -158,7 +158,7 @@ test('startEpic: git first, then the task from the CLI, then git worktree add, t
   ])
   const [list, refs, cli, add, run] = log
   assert.deepEqual(list.args, ['-C', `${ROOT}/backend`, 'worktree', 'list', '--porcelain'])
-  assert.deepEqual(refs.args, ['-C', ROOT, 'for-each-ref', 'refs/heads/epic-415', 'refs/heads/epic415/*'])
+  assert.deepEqual(refs.args, ['-C', ROOT, 'for-each-ref', 'refs/heads/epic-415'])
   assert.deepEqual(cli.args, [
     '-y', `conport@${CLI_VERSION}`, 'prompt', 'epic', '415', '-p', 'prk7m2qx9d', '--harness', 'claude', '--worktree', W(415),
     '--base', 'main', '--implementer', 'conport:sdd-implementer', '--reviewer', 'conport:sdd-task-reviewer',
@@ -219,7 +219,7 @@ test('startEpic: a refusal of the CLI creates nothing: no branch, no copy, no sp
   const { deps, log } = world({ cli: () => ({ code: 2, stdout: JSON.stringify(refusal), stderr: '' }) })
   const started = await startEpic(deps, input(415))
   assert.deepEqual(started, { ok: false, error: { code: 'epic_not_ready', fact: 'epic 415 cannot run: no plan', action: 'prepare it first' } })
-  assert.deepEqual(steps(log), ['git worktree list --porcelain', 'git for-each-ref refs/heads/epic-415 refs/heads/epic415/*', 'npx prompt epic'])
+  assert.deepEqual(steps(log), ['git worktree list --porcelain', 'git for-each-ref refs/heads/epic-415', 'npx prompt epic'])
 })
 
 test('startEpic: a CLI that does not answer in 300 s creates nothing', async () => {
@@ -240,11 +240,7 @@ test('startEpic: a harness not installed is refused before anything runs', async
   assert.deepEqual(log, [])
 })
 
-test('startEpic: workflow branches and a detached root are refused before the CLI is asked', async () => {
-  const workflow = world({ refs: 'git-for-each-ref-workflow.json' })
-  assert.equal((await startEpic(workflow.deps, input(414))).error.code, 'epic_started_workflow')
-  assert.ok(!workflow.log.some((entry) => entry.command === 'npx'))
-
+test('startEpic: a detached root is refused before the CLI is asked', async () => {
   const detached = world({ worktrees: 'git-worktree-list-detached.json' })
   assert.equal((await startEpic(detached.deps, input(415))).error.code, 'root_detached')
   assert.ok(!detached.log.some((entry) => entry.command === 'npx'))
@@ -359,14 +355,12 @@ test('readPlace: where an epic runs, read by git from any folder of its reposito
   const { deps, log } = world({ refs: 'git-for-each-ref-epic.json' })
   const place = await readPlace(deps.exec, { folder: `${ROOT}/backend`, epic: 412, home: HOME })
   assert.deepEqual(place, { ok: true, data: { root: ROOT, base: 'main', worktree: W(412), copy: 'existing' } })
-  assert.deepEqual(steps(log), ['git worktree list --porcelain', 'git for-each-ref refs/heads/epic-412 refs/heads/epic412/*'])
+  assert.deepEqual(steps(log), ['git worktree list --porcelain', 'git for-each-ref refs/heads/epic-412'])
   // It only reads: nothing is added, opened or remembered.
   assert.ok(!log.some((entry) => entry.step !== 'exec'))
 
   const fresh = await readPlace(world().deps.exec, { folder: ROOT, epic: 415, home: HOME })
   assert.deepEqual(fresh.data, { root: ROOT, base: 'main', worktree: W(415), copy: 'new' })
-  const workflow = await readPlace(world({ refs: 'git-for-each-ref-workflow.json' }).deps.exec, { folder: ROOT, epic: 414, home: HOME })
-  assert.equal(workflow.error.code, 'epic_started_workflow')
 })
 
 test('projectSpaceArgs: a new space in the root of the project, the tab named, the task last, on this machine', () => {

@@ -16,7 +16,6 @@ test('each refusal of the spec is one English line with what is wrong and one ac
     task_moved: 'The task no longer waits for this step — press Refresh.',
     epic_not_ready: 'The epic has no spec or no plan — prepare it in the Prepare tab.',
     epic_not_preparable: 'The epic is not ready to run for a reason preparation cannot fix — look at it in the Prepare tab.',
-    epic_started_workflow: 'The epic was started by the /conport:epic workflow — resume it in Orca in the /conport:epic mode.',
     root_detached: "The repository's main working copy is not on a branch, so the epic has no base — check out a branch in the main working copy.",
     role_invalid: 'The subagent type is not a plain name — choose a type for the role from the list.',
     no_project: "The repository has no ConPort project — enter the project's name or handle."
@@ -75,7 +74,6 @@ const MOD_REFUSALS = [
   { code: 'cli_failed', fact: 'x', action: '' }, // cli.js: a failed run with no refusal on stderr
   { code: 'bad_output', fact: 'x', action: '' }, // cli.js, launch.js: an answer the mod cannot read
   { code: 'git_failed', fact: 'x', action: '' }, // git.js, launch.js: a failed git command
-  { code: 'epic_started_workflow', fact: 'x', action: '' }, // git.js
   { code: 'root_detached', fact: 'x', action: '' }, // git.js
   { code: 'worktree_failed', fact: 'x', action: '', worktree: '/w/x' }, // launch.js
   { code: 'harness_missing', fact: 'Cursor', action: '' }, // harness.js, main.js

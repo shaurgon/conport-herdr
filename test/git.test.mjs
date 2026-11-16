@@ -38,9 +38,9 @@ test('parseWorktrees reads a detached main checkout as on no branch', () => {
 
 test('parseRefs reads the default format of for-each-ref and the bare refname form', () => {
   assert.deepEqual(parseRefs(record('git-for-each-ref-epic.json').stdout), ['refs/heads/epic-412'])
-  assert.deepEqual(parseRefs(record('git-for-each-ref-workflow.json').stdout), [
-    'refs/heads/epic414/final',
-    'refs/heads/epic414/task-1'
+  assert.deepEqual(parseRefs('a commit\trefs/heads/epic-414\na commit\trefs/heads/epic-414x\n'), [
+    'refs/heads/epic-414',
+    'refs/heads/epic-414x'
   ])
   assert.deepEqual(parseRefs(record('git-for-each-ref-none.json').stdout), [])
   assert.deepEqual(parseRefs('refs/heads/epic-9\n'), ['refs/heads/epic-9'])
@@ -48,7 +48,7 @@ test('parseRefs reads the default format of for-each-ref and the bare refname fo
 
 test('the git command lines are the ones the spec names', () => {
   assert.deepEqual(worktreeListArgs('/r'), ['-C', '/r', 'worktree', 'list', '--porcelain'])
-  assert.deepEqual(epicRefsArgs('/r', 412), ['-C', '/r', 'for-each-ref', 'refs/heads/epic-412', 'refs/heads/epic412/*'])
+  assert.deepEqual(epicRefsArgs('/r', 412), ['-C', '/r', 'for-each-ref', 'refs/heads/epic-412'])
   assert.deepEqual(gitDirArgs('/r'), ['-C', '/r', 'rev-parse', '--path-format=absolute', '--git-common-dir'])
   assert.deepEqual(worktreeAddArgs({ root: '/r', worktree: '/w', epic: 7, base: 'main', branch: true }), [
     '-C', '/r', 'worktree', 'add', '/w', 'epic-7'
@@ -94,10 +94,10 @@ test('epicPlace makes a new branch and copy at <W> when neither is there', () =>
   })
 })
 
-test('epicPlace refuses epic_started_workflow when only epic<N>/… branches are there', () => {
-  const placed = place('git-worktree-list.json', 'git-for-each-ref-workflow.json', 414)
-  assert.equal(placed.ok, false)
-  assert.equal(placed.error.code, 'epic_started_workflow')
+test('epicPlace places an epic whose only branches are epic<N>/…', () => {
+  const refs = 'a commit\trefs/heads/epic414/final\na commit\trefs/heads/epic414/task-1\n'
+  const placed = epicPlace({ worktrees: parseWorktrees(record('git-worktree-list.json').stdout), refs, epic: 414, home: HOME })
+  assert.deepEqual(placed, { ok: true, data: { root: ROOT, base: 'main', worktree: W(414), copy: 'new' } })
 })
 
 test('epicPlace starts an epic whose branch epic-<N> is there beside epic<N>/… branches', () => {
@@ -107,9 +107,9 @@ test('epicPlace starts an epic whose branch epic-<N> is there beside epic<N>/…
   assert.equal(placed.data.copy, 'branch')
 })
 
-test('epicPlace counts only the branches of this epic: epic-41 is not epic-412, epic41/ is not epic412/', () => {
+test('epicPlace counts only the branches of this epic: epic-41 is not epic-412', () => {
   const worktrees = parseWorktrees(record('git-worktree-list.json').stdout)
-  const refs = 'a commit\trefs/heads/epic-412\na commit\trefs/heads/epic412/task-1\na commit\trefs/heads/epic-41/x\n'
+  const refs = 'a commit\trefs/heads/epic-412\na commit\trefs/heads/epic-41/x\n'
   const placed = epicPlace({ worktrees, refs, epic: 41, home: HOME })
   assert.deepEqual(placed, { ok: true, data: { root: ROOT, base: 'main', worktree: W(41), copy: 'new' } })
 })
@@ -173,12 +173,16 @@ test('on real repositories with spaces and non-ASCII letters in their paths, the
   assert.equal(epicPlace({ worktrees: after, refs: refs(9), epic: 9, home }).data.copy, 'existing')
 })
 
-test('on a real repository, workflow branches refuse and a detached main checkout refuses', (t) => {
+test('on a real repository, branches epic<N>/… are not asked for and a detached main checkout refuses', (t) => {
   const root = repository(join(scratch(t), 'repo'))
   git(['branch', 'epic3/task-1', 'main'], root)
   const worktrees = () => parseWorktrees(git(worktreeListArgs(root)))
   const refs = git(epicRefsArgs(root, 3), root)
-  assert.equal(epicPlace({ worktrees: worktrees(), refs, epic: 3, home: HOME }).error.code, 'epic_started_workflow')
+  assert.deepEqual(parseRefs(refs), [])
+  assert.deepEqual(epicPlace({ worktrees: worktrees(), refs, epic: 3, home: HOME }), {
+    ok: true,
+    data: { root, base: 'main', worktree: join(HOME, '.herdr', 'worktrees', 'repo', 'epic-3'), copy: 'new' }
+  })
 
   git(['checkout', '-q', '--detach'], root)
   const detached = epicPlace({ worktrees: worktrees(), refs: '', epic: 4, home: HOME })

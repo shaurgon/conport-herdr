@@ -1,5 +1,0 @@
-{
-  "command": "git -C <root> for-each-ref refs/heads/epic-414 'refs/heads/epic414/*'",
-  "code": 0,
-  "stdout": "ec78bda3d75d0f491ad8d9a027e22b6d25fd5fa8 commit\trefs/heads/epic414/final\nec78bda3d75d0f491ad8d9a027e22b6d25fd5fa8 commit\trefs/heads/epic414/task-1\n"
-}

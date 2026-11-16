@@ -1,6 +1,6 @@
-// Where an epic lives in a repository: its root, its base, the copy of the branch epic-<N> and
-// the branches an earlier start left. The mod runs git through Herdr's exec; these functions
-// build its arguments and read what it printed.
+// Where an epic lives in a repository: its root, its base, and the branch epic-<N> and its copy
+// an earlier start left. The mod runs git through Herdr's exec; these functions build its
+// arguments and read what it printed.
 
 /** @import { Refused, Result } from './refusals.js' */
 
@@ -24,8 +24,8 @@ const branchName = (/** @type {string | null | undefined} */ ref) => (ref ?? '')
 /** The checkouts of the repository at `folder`; the first is the root. */
 export const worktreeListArgs = (/** @type {string} */ folder) => ['-C', folder, 'worktree', 'list', '--porcelain']
 
-/** The branch epic-<N> of the SDD skill and the branches epic<N>/… of the workflow. */
-export const epicRefsArgs = (/** @type {string} */ root, /** @type {number} */ epic) => ['-C', root, 'for-each-ref', `refs/heads/epic-${epic}`, `refs/heads/epic${epic}/*`]
+/** The branch epic-<N> of the epic. */
+export const epicRefsArgs = (/** @type {string} */ root, /** @type {number} */ epic) => ['-C', root, 'for-each-ref', `refs/heads/epic-${epic}`]
 
 /** The git directory every checkout of the repository shares, as an absolute path. */
 export const gitDirArgs = (/** @type {string} */ folder) => ['-C', folder, 'rev-parse', '--path-format=absolute', '--git-common-dir']
@@ -102,8 +102,8 @@ const refuse = (/** @type {string} */ code, /** @type {string} */ fact) => ({ ok
  * Where epic `epic` runs: `{root, base, worktree, copy}`. `copy` is `existing` for a checkout of
  * the branch epic-<N> wherever it is, `branch` for the branch without one, `new` when neither is
  * there; the last two get their copy at `<home>/.herdr/worktrees/<repo>/epic-<N>`. Refused:
- * `epic_started_workflow` when only branches epic<N>/… are there, `root_detached` when the main
- * checkout is on no branch. `refs` is what for-each-ref printed, or its refnames.
+ * `root_detached` when the main checkout is on no branch. `refs` is what for-each-ref printed,
+ * or its refnames.
  * @param {{worktrees: Worktree[], refs: string | string[], epic: number, home: string}} found
  * @returns {Result<Place>}
  */
@@ -111,13 +111,8 @@ export function epicPlace({ worktrees, refs, epic, home }) {
   const [main] = worktrees ?? []
   if (!main) return refuse('git_failed', 'git listed no checkout of the repository')
   const names = typeof refs === 'string' ? parseRefs(refs) : refs ?? []
-  const own = `refs/heads/epic-${epic}`
-  const tasks = `refs/heads/epic${epic}/`
   // The pattern of the branch lists the branches under it too: only the exact name counts.
-  const branch = names.includes(own)
-  if (!branch && names.some((name) => name.startsWith(tasks))) {
-    return refuse('epic_started_workflow', `branches epic${epic}/… are there without epic-${epic}`)
-  }
+  const branch = names.includes(`refs/heads/epic-${epic}`)
   if (main.branch === null) return refuse('root_detached', 'the main checkout is on no branch')
   const root = main.path
   const existing = worktrees.find((row) => row.branch === `epic-${epic}`)

@@ -43,7 +43,6 @@ export const LINES = {
   task_moved: ['The task no longer waits for this step', REFRESH],
   epic_not_ready: ['The epic has no spec or no plan', 'prepare it in the Prepare tab.'],
   epic_not_preparable: ['The epic is not ready to run for a reason preparation cannot fix', 'look at it in the Prepare tab.'],
-  epic_started_workflow: ['The epic was started by the /conport:epic workflow', 'resume it in Orca in the /conport:epic mode.'],
   root_detached: ["The repository's main working copy is not on a branch, so the epic has no base", 'check out a branch in the main working copy.'],
   role_invalid: ['The subagent type is not a plain name', 'choose a type for the role from the list.'],
   no_project: ['The repository has no ConPort project', "enter the project's name or handle."],

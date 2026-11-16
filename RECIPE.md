@@ -219,9 +219,8 @@ color is a token of `theme()`: the panel follows the person's theme.
   in `version.js` for its footer.
 - Copy the mod folder whole, `mod.json` no later than `main.js`: a folder whose
   `main.js` came first is placed as a 320px panel on the right regardless.
-- Limits: only spaces of this machine; no way to run an epic by the `/conport:epic` workflow (that is in
-  Orca); no run progress, questions or stop in the panel — close the agent's
-  tab to stop it.
+- Limits: only spaces of this machine; no run progress, questions or stop in
+  the panel — close the agent's tab to stop it.
 - It assumes `npx` (Node 18+), `git`, a ConPort API key, and Claude Code,
   Codex or Cursor installed; Claude Code needs the conport plugin for the
   default subagent types.
@@ -261,3 +260,6 @@ Herdr's install does not overwrite a taken name. With the person's consent,
 delete `~/.config/herdr-app/mods/conport`, copy the new `mods/conport/` in its
 place and run `herdr-app check ~/.config/herdr-app/mods/conport`. What the mod
 remembers lives in Herdr's shared state and survives the update.
+
+Update Orca's conport plugin to 0.8.0 and the Herdr mod to 0.3.0 together with
+the conport plugin 25.
