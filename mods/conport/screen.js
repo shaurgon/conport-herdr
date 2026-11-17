@@ -1,15 +1,15 @@
-// What the screens of the mod say, and what they decide without Herdr: the lines of an epic and
-// of a task, the choices of the roles and of the agent of a sheet, and what the start of an epic
-// shows. The words for the person are English; main.js only draws them.
-import { TASK_STATUS } from './cli.js'
+// What the screens of the mod say, and what they decide without Herdr: the four sections of the
+// SDD stages, the lines and the buttons of their rows, when the list is read again, the choices of
+// the roles and of the agent of a sheet, and what the start of an epic shows. The words for the
+// person are English; main.js only draws them.
+import { HAND_BUTTONS, TASK_STATUS } from './cli.js'
 import { DEFAULT_ROLES, FIXER_TYPE } from './harness.js'
 import { refusalLine } from './refusals.js'
 import { holdState } from './session.js'
 
-/** @import { Epic, EpicTask, HandMode, Milestone, Task } from './cli.js' */
+/** @import { EpicTask, HandMode, IdeaRow, InWorkRow, Milestone, ProposalRow, SddTaken, SpecRow, Task } from './cli.js' */
 /** @import { Place } from './git.js' */
 /** @import { HarnessChoice, RoleKey, Roles } from './harness.js' */
-/** @import { SheetKind } from './launch.js' */
 /** @import { Result } from './refusals.js' */
 /** @import { Hold, Session } from './session.js' */
 
@@ -25,13 +25,28 @@ import { holdState } from './session.js'
  */
 
 /**
- * A sheet that hands a preparation of an epic or a task outside the epics to an agent.
- * @typedef {{kind: 'spec' | 'plan', epic: Epic, task?: undefined} | {kind: HandMode, task: Task, epic?: undefined}} Sheet
+ * A sheet: what an agent is opened on — an idea to brainstorm, a proposal to brainstorm, a spec to
+ * plan and build, a task to do, review or fix — or a proposal to decline, which opens no agent.
+ * @typedef {{kind: 'idea', idea: IdeaRow} | {kind: 'proposal', proposal: ProposalRow} | {kind: 'decline', proposal: ProposalRow} | {kind: 'spec', spec: SpecRow} | {kind: HandMode, task: Task}} Sheet
  */
 
 /**
- * A tab of the panel.
- * @typedef {keyof typeof TAB_TITLES} Tab
+ * The kind of a sheet.
+ * @typedef {Sheet['kind']} SheetKind
+ */
+
+/**
+ * A section of the screen.
+ * @typedef {'in_work' | 'specs' | 'ideas' | 'outside'} SectionKey
+ */
+
+/**
+ * A row of a section as its line and its buttons read it: an idea, a proposal, a spec (a document
+ * or an epic with a spec and no plan), an epic In work or outside SDD, or a task of an epic outside SDD.
+ * @typedef {({type: 'idea' | 'task', mode: HandMode | null} & Pick<IdeaRow, 'status'> & Partial<Pick<IdeaRow, 'kind' | 'priority' | 'changes_requested'>>)
+ *   | ({type: 'proposal'} & Partial<Pick<ProposalRow, 'author'>>)
+ *   | ({type: 'spec'} & Pick<SpecRow, 'epic'> & Partial<Pick<SpecRow, 'priority'>>)
+ *   | ({type: 'epic', section: 'in_work' | 'outside', reason?: string | null} & Pick<InWorkRow, 'status' | 'progress'> & Partial<Pick<InWorkRow, 'ready'>>)} ActionRow
  */
 
 /**
@@ -60,7 +75,7 @@ export const NO_MILESTONE = 'No milestone'
 /**
  * Where an epic stands: ready to merge by the field `ready`; in progress once it is taken or a
  * task is closed; else not started.
- * @param {Epic} epic
+ * @param {{ready?: boolean, status?: string | null, progress?: {total?: number, open?: number}}} epic
  * @returns {string}
  */
 export function epicState(epic) {
@@ -71,32 +86,187 @@ export function epicState(epic) {
   return `Not started · ${total} ${plural(total, 'task', 'tasks')}`
 }
 
-/** The three tabs. */
-export const TAB_TITLES = { launch: 'Ready to run', prepare: 'Prepare', tasks: 'Tasks' }
+/**
+ * The four sections, top to bottom: the nearer to a release, the higher. Each opens as the spec
+ * says until the person folds or opens it; Outside SDD starts folded.
+ * @type {{key: SectionKey, title: string, caption: string, open: boolean}[]}
+ */
+export const SECTIONS = [
+  { key: 'in_work', title: 'In work', caption: 'spec + plan', open: true },
+  { key: 'specs', title: 'Specs', caption: 'spec, no plan', open: true },
+  { key: 'ideas', title: 'Ideas', caption: 'not worked through', open: true },
+  { key: 'outside', title: 'Outside SDD', caption: 'no spec', open: false }
+]
 
-/** A tab with its count. */
-export const tabLabel = (/** @type {Tab} */ tab, /** @type {number} */ n) => `${TAB_TITLES[tab]} · ${n}`
+/** The title of each section by its key. */
+export const SECTION_TITLES = /** @type {Record<SectionKey, string>} */ (Object.fromEntries(SECTIONS.map((section) => [section.key, section.title])))
 
-/** What an epic that cannot start lacks, said on its row in the tab Prepare. */
-export const PREPARE_STATE = {
-  spec: 'No spec',
-  plan: 'Spec, no plan',
-  other: 'Not ready to run for another reason'
-}
-
-/** What Prepare does for an epic without a spec or a plan. */
-export const PREPARE_HINT =
-  'The agent talks the epic through with you and writes its spec and plan; then the epic appears in the Ready to run tab.'
+/** A section's title with its count. */
+export const sectionLabel = (/** @type {SectionKey} */ key, /** @type {number} */ n) => `${SECTION_TITLES[key]} · ${n}`
 
 /**
- * The groups of the tab Tasks, by the key of `taskTabs`.
- * @type {['review' | 'inProgress' | 'todo', string][]}
+ * Which sections are open: what `kept` (the value the mod stored) says of a section, as a
+ * boolean, else as the spec opens it.
+ * @param {unknown} kept
+ * @returns {Record<SectionKey, boolean>}
  */
-export const TASK_GROUPS = [
-  ['review', 'In review'],
-  ['inProgress', 'In progress'],
-  ['todo', 'To do']
-]
+export function sectionsOpen(kept) {
+  const said = /** @type {Record<string, unknown>} */ (kept !== null && typeof kept === 'object' ? kept : {})
+  return /** @type {Record<SectionKey, boolean>} */ (
+    Object.fromEntries(SECTIONS.map((section) => [section.key, typeof said[section.key] === 'boolean' ? said[section.key] : section.open]))
+  )
+}
+
+/** Under Ideas: the proposals `sdd list` could not read. */
+export const skippedLine = (/** @type {number} */ n) =>
+  n === 1 ? '1 proposal is not shown: its state line cannot be read' : `${n} proposals are not shown: their state lines cannot be read`
+
+/** How often the light read of the taken rows runs while the mod is open. */
+export const POLL_TAKEN_MS = 60000
+
+/** How long the full list stands before the timer reads it again. */
+export const FULL_READ_MS = 600000
+
+/**
+ * What a tick of the timer reads: nothing while a read runs; the full list once `FULL_READ_MS`
+ * passed since the last one; else the light read of the taken rows.
+ * @param {{reading: boolean, sinceFull: number}} state
+ * @returns {'none' | 'full' | 'taken'}
+ */
+export function pollStep({ reading, sinceFull }) {
+  if (reading) return 'none'
+  return sinceFull >= FULL_READ_MS ? 'full' : 'taken'
+}
+
+/**
+ * The taken rows of the light read by number, with the time each was last changed; null for no
+ * light read since the last full one.
+ * @param {SddTaken | null | undefined} taken
+ * @returns {Map<number, string> | null}
+ */
+export function takenMap(taken) {
+  if (!taken) return null
+  return new Map((Array.isArray(taken.taken) ? taken.taken : []).map((row) => [row.id, row.updated_at]))
+}
+
+/**
+ * Whether a row of the list is taken: by the light read when there is one since the last full
+ * read — its number in the set, and not an idea back from review, which waits for its fix — else
+ * as the full list says. `id` is the number the light read knows the row by (the epic of a spec).
+ * @param {{id?: number | null, taken?: boolean, changes_requested?: boolean}} row
+ * @param {Map<number, string> | null} taken
+ * @returns {boolean}
+ */
+export function rowTaken(row, taken) {
+  if (taken === null) return row.taken === true
+  return typeof row.id === 'number' && taken.has(row.id) && row.changes_requested !== true
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const two = (/** @type {number} */ n) => String(n).padStart(2, '0')
+
+/**
+ * A taken row by the time it was last changed, in the time of this machine: `In progress · updated
+ * HH:MM` today, `In progress · updated D Mon HH:MM` on another day; no time when there is none.
+ * @param {string | null | undefined} iso
+ * @param {Date} now
+ * @returns {string}
+ */
+export function updatedLine(iso, now) {
+  const at = new Date(iso ?? '')
+  if (iso === null || iso === undefined || Number.isNaN(at.getTime())) return 'In progress'
+  const time = `${two(at.getHours())}:${two(at.getMinutes())}`
+  const today = at.getFullYear() === now.getFullYear() && at.getMonth() === now.getMonth() && at.getDate() === now.getDate()
+  return today ? `In progress · updated ${time}` : `In progress · updated ${at.getDate()} ${MONTHS[at.getMonth()]} ${time}`
+}
+
+/** What Take over asks before it starts a row another session may be at. */
+export const TAKE_OVER_CONFIRM = 'Another session may be working on it'
+
+/**
+ * The buttons of a row, by the table of the spec: an idea to do — Brainstorm; an idea or an epic
+ * taken — Show terminal when this host has its terminal (`hasTab`), else Take over, whatever stage
+ * the list still holds; an idea in review or back from it — Review or Fix; a blocked idea — none; a proposal — Brainstorm and Decline; a
+ * spec — Plan & build (Show terminal or Take over the same way) and Open spec; an epic In work —
+ * Start; a task of an epic outside SDD — Hand to agent, Review or Fix.
+ * @param {ActionRow} row
+ * @param {boolean} taken
+ * @param {boolean} hasTab
+ * @returns {string[]}
+ */
+export function rowActions(row, taken, hasTab) {
+  const launch = (/** @type {string} */ start) => (hasTab ? 'Show terminal' : taken ? 'Take over' : start)
+  switch (row.type) {
+    case 'proposal':
+      return ['Brainstorm', 'Decline']
+    case 'spec':
+      return [launch('Plan & build'), 'Open spec']
+    case 'epic':
+      if (row.section === 'outside' || row.reason) return []
+      return [launch('Start')]
+    case 'task':
+      return row.mode === null ? [] : [HAND_BUTTONS[row.mode]]
+    default:
+      // In the order `rowLine` says it: taken first — the light read is newer than the stage the
+      // list holds — then in review or back from it, then blocked.
+      if (taken) return [launch('Brainstorm')]
+      if (row.mode === 'fix' || row.mode === 'review') return [HAND_BUTTONS[row.mode]]
+      if (row.status === 'BLOCKED') return []
+      if (hasTab) return ['Show terminal']
+      return row.status === 'TODO' ? ['Brainstorm'] : []
+  }
+}
+
+/**
+ * The line under the title of a row: a taken row by the time it was last changed (`updated`, as
+ * `now` sees it); else an idea or a task by its stage (`Blocked` for a blocked one), a proposal by
+ * its author, a spec by what it waits for, an epic In work by where it stands (ready to merge
+ * before anything, why it cannot start), an epic outside SDD by its closed tasks.
+ * @param {ActionRow} row
+ * @param {{taken: boolean, updated?: string | null, now?: Date}} state
+ * @returns {string}
+ */
+export function rowLine(row, { taken, updated = null, now = new Date() }) {
+  const progress = updatedLine(updated, now)
+  switch (row.type) {
+    case 'proposal':
+      return row.author ? `Proposal · ${row.author}` : 'Proposal'
+    case 'spec':
+      if (taken) return progress
+      return row.epic === null || row.epic === undefined ? `${PRIORITY[row.priority] ?? 'No priority'} · no plan` : `Epic ${row.epic} · no plan`
+    case 'epic': {
+      if (row.section === 'in_work') {
+        if (row.ready) return epicState(row)
+        if (row.reason) return `Cannot start: ${row.reason}`
+        return taken ? progress : epicState(row)
+      }
+      if (taken) return progress
+      const total = row.progress?.total ?? 0
+      return `${total - (row.progress?.open ?? 0)} of ${total} closed`
+    }
+    default: {
+      const bug = (/** @type {string} */ stage) => (row.kind === 'bug' ? `${BUG_LABEL} · ${stage}` : stage)
+      if (taken) return bug(progress)
+      if (row.status === 'BLOCKED') return bug('Blocked')
+      return taskLine({ id: 0, title: '', status: row.status, priority: row.priority, kind: row.kind, changes_requested: row.changes_requested })
+    }
+  }
+}
+
+/** The address of the dashboard. */
+const DASHBOARD = 'https://me.conport.app'
+
+/**
+ * Open spec: document `doc` in the dashboard, in the team `canonical` (the project's address
+ * `<team>/<name>`) names; null when the address names no team.
+ * @param {{canonical: string | null | undefined, handle: string, doc: number}} where
+ * @returns {string | null}
+ */
+export function documentUrl({ canonical, handle, doc }) {
+  const team = typeof canonical === 'string' && canonical.includes('/') ? canonical.split('/')[0] : ''
+  if (team === '') return null
+  return `${DASHBOARD}/t/${encodeURIComponent(team)}/p/${encodeURIComponent(handle)}/documents?id=${doc}`
+}
 
 /**
  * The priority of a task, 1 to 5, in words.
@@ -134,7 +304,7 @@ export function taskLine(task) {
 const TASK_MARKS = { DONE: 'done', IN_PROGRESS: 'working', REVIEW: 'working', BLOCKED: 'blocked' }
 
 /**
- * A task of an epic on its row, as the epics of the tab Ready to run: the title, a line under it
+ * A task of an epic on its row, as the epics In work: the title, a line under it
  * with the number and the status, the mark of the status; a cancelled one dimmed.
  * @param {EpicTask} task
  * @returns {{title: string, line: string, mark: TaskMark, muted: boolean}}
@@ -235,17 +405,22 @@ export function sheetAgent(choices, last) {
   return (installed.find((choice) => choice.kind === last) ?? installed[0])?.kind ?? null
 }
 
-/** What the agent opened from a sheet does, step by step. */
+/** What the agent opened from a sheet does, step by step; a decline opens no agent. */
 export const SHEET_STEPS = {
-  spec: [
-    'Talks the epic through with you and writes the spec',
-    'After your yes, uploads it to ConPort',
-    "Writes the plan, links the epic's tasks, imports the plan"
+  idea: [
+    'Takes the idea and reads its journal and links',
+    'Talks it through with you: a small fix, a look around, or a spec',
+    'After your yes, uploads the spec to ConPort and asks whether to plan and build it now'
   ],
-  plan: [
-    "Reads the epic's spec and talks the plan through with you",
-    "Links the epic's open tasks to the plan",
-    'After your yes, imports the plan into ConPort'
+  proposal: [
+    'Takes the proposal into the project as an idea',
+    'Talks it through with you: a small fix, a look around, or a spec',
+    'After your yes, uploads the spec to ConPort and asks whether to plan and build it now'
+  ],
+  spec: [
+    'Reads the spec and writes the plan with you',
+    'After your yes, imports the plan: the epic and its tasks are In work',
+    'Builds the epic right away in a working copy of its own'
   ],
   do: [
     'Starts the task',
@@ -276,40 +451,56 @@ const HAND_SHEETS = {
  * @returns {{title: string, description: string, who: string, button: string}}
  */
 export function sheetText(sheet) {
-  if (sheet.kind === 'spec' || sheet.kind === 'plan') {
-    const button = sheet.kind === 'spec' ? 'Prepare' : 'Write plan'
-    return {
-      title: `${button} “${sheet.epic.title}”`,
-      description: `${sheet.epic.id} · ${sheet.kind === 'spec' ? 'no spec' : 'no plan'}`,
-      who: 'Who prepares',
-      button
+  switch (sheet.kind) {
+    case 'idea': {
+      const stage = taskLine({ ...sheet.idea, kind: 'task' }).toLowerCase()
+      return { title: `Brainstorm “${sheet.idea.title}”`, description: `${sheet.idea.id} · ${stage}`, who: 'Who brainstorms', button: 'Brainstorm' }
+    }
+    case 'proposal':
+    case 'decline': {
+      const { doc, title, author } = sheet.proposal
+      const description = author ? `doc-${doc} · proposal · ${author}` : `doc-${doc} · proposal`
+      return sheet.kind === 'proposal'
+        ? { title: `Brainstorm “${title}”`, description, who: 'Who brainstorms', button: 'Brainstorm' }
+        : { title: `Decline “${title}”`, description, who: 'Why it is declined', button: 'Decline' }
+    }
+    case 'spec': {
+      const { doc, title, epic } = sheet.spec
+      const description = epic === null || epic === undefined ? `doc-${doc} · no plan` : `epic ${epic} · doc-${doc} · no plan`
+      return { title: `Plan & build “${title}”`, description, who: 'Who plans and builds', button: 'Plan & build' }
+    }
+    default: {
+      const { button, who } = HAND_SHEETS[sheet.kind]
+      const stage = taskLine({ ...sheet.task, kind: 'task' }).toLowerCase()
+      return { title: `${button} “${sheet.task.title}”`, description: `${sheet.task.id} · ${stage}`, who, button }
     }
   }
-  const { button, who } = HAND_SHEETS[sheet.kind]
-  const stage = taskLine({ ...sheet.task, kind: 'task' }).toLowerCase()
-  return { title: `${button} “${sheet.task.title}”`, description: `${sheet.task.id} · ${stage}`, who, button }
 }
 
 /** Where the lead session of an epic was opened. */
 export const startNotice = (/** @type {number} */ epic) => `The agent of epic ${epic} is open in the lead tab of space epic-${epic}; it asks its questions there`
 
 /**
- * Where the agent of a sheet was opened (`kind` and `id` of the sheet), and what comes of it.
- * @param {{kind: SheetKind, id: number, project: string}} sheet
+ * What a sheet did: where its agent was opened (`tab`, the task or idea `id`) and what comes of
+ * it; a decline (`id` the proposal) opened none.
+ * @param {{kind: SheetKind, id: number, tab: string | null, project: string}} sheet
  * @returns {string}
  */
-export function handNotice({ kind, id, project }) {
-  if (kind === 'spec' || kind === 'plan') {
-    return `Preparation of epic ${id} is open in tab prepare-${id} of project “${project}”: the agent is waiting for you there. Once the plan is in ConPort, press Refresh.`
+export function handNotice({ kind, id, tab, project }) {
+  if (kind === 'decline') return `Proposal doc-${id} is declined.`
+  const where = `in tab ${tab} of project “${project}”`
+  if (kind === 'idea') return `Idea ${id} is open ${where}: the agent is waiting for you there to talk it through.`
+  if (kind === 'proposal') return `The proposal is idea ${id} now; it is open ${where}: the agent is waiting for you there to talk it through.`
+  if (kind === 'spec') {
+    return `Plan & build is open ${where}: the agent writes the plan with you there. Once the plan is in ConPort, its epic is In work.`
   }
-  const tab = `in tab task-${id} of project “${project}”`
   if (kind === 'fix') {
-    return `Fixes of task ${id} are open ${tab}: the agent is waiting for you there. Once it writes its fixes to the journal, the task waits for review again; press Refresh.`
+    return `Fixes of task ${id} are open ${where}: the agent is waiting for you there. Once it writes its fixes to the journal, the task waits for review again; press Refresh.`
   }
   if (kind === 'review') {
-    return `Review of task ${id} is open ${tab}: the agent writes its verdict to the task's journal and, on approval, closes the task with your consent.`
+    return `Review of task ${id} is open ${where}: the agent writes its verdict to the task's journal and, on approval, closes the task with your consent.`
   }
-  return `Task ${id} is open ${tab}: the agent is waiting for you there. The work goes to a separate branch of the task, and you merge it. Once the agent writes its report, the task waits for review; press Refresh.`
+  return `Task ${id} is open ${where}: the agent is waiting for you there. The work goes to a separate branch of the task, and you merge it. Once the agent writes its report, the task waits for review; press Refresh.`
 }
 
 /**

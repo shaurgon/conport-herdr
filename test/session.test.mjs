@@ -9,9 +9,14 @@ import {
   localSpaces,
   releaseHold,
   rootSpace,
+  rowSession,
+  showTerminalCommands,
   startHold
 } from '../mods/conport/session.js'
 import { HOME, record } from './records.mjs'
+
+/** A document as the CLI names it: `doc-<N>`, the number never written out. */
+const docRef = (n) => `doc-${n}`
 
 const W = (epic) => `${HOME}/.herdr/worktrees/acme-app/epic-${epic}`
 const EPIC_412_SPACE = 'spedbe3f924f2f331e70b470d09ac8ba38'
@@ -242,4 +247,54 @@ test('rootSpace: a pane in another copy of the repository nested in the root is 
   assert.equal(rootSpace({ spaces: snap.spaces, panes: only, root: ROOT, worktrees }), null)
   // The root itself in the list of copies excludes nothing.
   assert.equal(rootSpace({ spaces: snap.spaces, panes: both, root: `${ROOT}/`, worktrees: [`${ROOT}/`] }), 'spedbe3f924f2f331e70b470d09ac8ba38')
+})
+
+const NOTES_SPACE = 'sp181d9986e6b719db33e8a6e91303098d'
+
+/** The snapshot with the tab Claude Code of space notes named `name`, as a start of the mod names it. */
+const namedTab = (name) => {
+  const snap = record('claude-working.json')
+  const spaces = snap.spaces.map((space) => ({ ...space, tabs: space.tabs.map((tab) => (tab.name === 'Claude Code' ? { ...tab, name } : tab)) }))
+  return { ...snap, spaces }
+}
+
+/** The id Herdr gives the tab named `name` in space notes of `snap`. */
+const tabId = (snap, name) => snap.spaces.find((space) => space.id === NOTES_SPACE).tabs.find((tab) => tab.name === name).id
+
+test('rowSession finds the agent of tab idea-<id>, with the id of that tab', () => {
+  const snap = namedTab('idea-2116')
+  const id = tabId(snap, 'idea-2116')
+  assert.equal(typeof id, 'string')
+  assert.deepEqual(rowSession({ agents: snap.agents, spaces: snap.spaces, tab: 'idea-2116' }), { live: true, space: NOTES_SPACE, tab: id })
+  // The same for the tab of a spec and of a plan.
+  for (const tab of [docRef(245), 'plan-1597']) {
+    const named = namedTab(tab)
+    assert.deepEqual(rowSession({ agents: named.agents, spaces: named.spaces, tab }), { live: true, space: NOTES_SPACE, tab: tabId(named, tab) }, tab)
+  }
+  // Another tab name, or a name that only starts like it, is not the session of the row.
+  assert.deepEqual(rowSession({ agents: snap.agents, spaces: snap.spaces, tab: 'idea-21' }), { live: false, space: null })
+  assert.deepEqual(rowSession({ agents: snap.agents, spaces: snap.spaces, tab: 'idea-2117' }), { live: false, space: null })
+})
+
+test('rowSession: a tab whose agent is gone, or a space of another machine, is no session', () => {
+  const snap = namedTab('idea-2116')
+  const others = snap.agents.filter((agent) => agent.space !== NOTES_SPACE)
+  assert.deepEqual(rowSession({ agents: others, spaces: snap.spaces, tab: 'idea-2116' }), { live: false, space: null })
+  const remote = snap.spaces.map((space) => ({ ...space, machine: 'vps' }))
+  assert.deepEqual(rowSession({ agents: snap.agents, spaces: remote, tab: 'idea-2116' }), { live: false, space: null })
+  assert.deepEqual(rowSession({ agents: null, spaces: null, tab: 'idea-2116' }), { live: false, space: null })
+})
+
+test('Show terminal selects the space of the row, then its own tab among the others of that space', () => {
+  // The idea and a spec are both open in the space of the root: the tab of the idea is the one shown.
+  const snap = namedTab('idea-2116')
+  const session = rowSession({ agents: snap.agents, spaces: snap.spaces, tab: 'idea-2116' })
+  assert.deepEqual(showTerminalCommands(session), [
+    ['space.select', { id: NOTES_SPACE }],
+    ['tab.select', { id: tabId(snap, 'idea-2116') }]
+  ])
+  // A session known by its space alone (the lead session of an epic in its copy): the space.
+  assert.deepEqual(showTerminalCommands({ live: true, space: 'sp1' }), [['space.select', { id: 'sp1' }]])
+  // No session: nothing.
+  assert.deepEqual(showTerminalCommands({ live: false, space: null }), [])
 })

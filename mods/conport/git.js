@@ -108,17 +108,30 @@ const refuse = (/** @type {string} */ code, /** @type {string} */ fact) => ({ ok
  * @returns {Result<Place>}
  */
 export function epicPlace({ worktrees, refs, epic, home }) {
-  const [main] = worktrees ?? []
-  if (!main) return refuse('git_failed', 'git listed no checkout of the repository')
+  const main = mainCheckout(worktrees)
+  if (main.ok === false) return main
+  const { root, base } = main.data
   const names = typeof refs === 'string' ? parseRefs(refs) : refs ?? []
   // The pattern of the branch lists the branches under it too: only the exact name counts.
   const branch = names.includes(`refs/heads/epic-${epic}`)
-  if (main.branch === null) return refuse('root_detached', 'the main checkout is on no branch')
-  const root = main.path
   const existing = worktrees.find((row) => row.branch === `epic-${epic}`)
   /** @type {Place} */
   const data = existing
-    ? { root, base: main.branch, worktree: existing.path, copy: 'existing' }
-    : { root, base: main.branch, worktree: epicWorktreePath(home, root, epic), copy: branch ? 'branch' : 'new' }
+    ? { root, base, worktree: existing.path, copy: 'existing' }
+    : { root, base, worktree: epicWorktreePath(home, root, epic), copy: branch ? 'branch' : 'new' }
   return { ok: true, data }
+}
+
+/**
+ * The main checkout, the first `git worktree list` gives: its path `root` and its branch `base`,
+ * the base of an epic and of Plan & build. Refused: `git_failed` when git listed no checkout,
+ * `root_detached` when the main checkout is on no branch.
+ * @param {Worktree[] | null | undefined} worktrees
+ * @returns {Result<{root: string, base: string}>}
+ */
+export function mainCheckout(worktrees) {
+  const [main] = worktrees ?? []
+  if (!main) return refuse('git_failed', 'git listed no checkout of the repository')
+  if (main.branch === null) return refuse('root_detached', 'the main checkout is on no branch')
+  return { ok: true, data: { root: main.path, base: main.branch } }
 }

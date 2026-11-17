@@ -3,19 +3,29 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { DEFAULT_ROLES } from '../mods/conport/harness.js'
 import {
+  acceptProposal,
+  declineProposal,
   epicPromptArgs,
   handToAgent,
-  preparePromptArgs,
+  ideaPromptArgs,
   projectSpaceArgs,
+  proposalAcceptArgs,
+  proposalDeclineArgs,
   readPlace,
   spaceNewArgs,
+  specPromptArgs,
   startEpic,
+  startIdea,
+  startSpec,
   tabNewArgs,
   taskPromptArgs
 } from '../mods/conport/launch.js'
 import { agentKey, epicKey, harnessKey } from '../mods/conport/state.js'
 import { CLI_VERSION } from '../mods/conport/version.js'
 import { git, HOME, record, repository, scratch } from './records.mjs'
+
+/** A document as the CLI names it: `doc-<N>`, the number never written out. */
+const docRef = (n) => `doc-${n}`
 
 const ROOT = `${HOME}/src/acme-app`
 const GIT_DIR = `${ROOT}/.git`
@@ -52,10 +62,28 @@ test('epicPromptArgs: the task of an epic with the copy, the base and the four r
   assert.ok(!plain.includes('--host'))
 })
 
-test('preparePromptArgs and taskPromptArgs name the host herdr and ask for JSON', () => {
-  assert.deepEqual(preparePromptArgs({ epic: 9, project: 'p' }), ['prompt', 'prepare', '9', '-p', 'p', '--host', 'herdr', '--json'])
+test('taskPromptArgs names the host herdr and asks for JSON', () => {
   assert.deepEqual(taskPromptArgs({ task: 31, project: 'p', mode: 'fix', agent: 'codex', root: '/my repo' }), [
     'prompt', 'task', '31', '-p', 'p', '--host', 'herdr', '--mode', 'fix', '--agent', 'codex', '--root', '/my repo', '--json'
+  ])
+})
+
+test('ideaPromptArgs and specPromptArgs: the tasks of an idea and of a spec name the host herdr, the agent and the root', () => {
+  assert.deepEqual(ideaPromptArgs({ task: 2116, project: 'p', agent: 'codex', root: '/my repo' }), [
+    'prompt', 'idea', '2116', '-p', 'p', '--host', 'herdr', '--agent', 'codex', '--root', '/my repo', '--json'
+  ])
+  assert.deepEqual(specPromptArgs({ target: { doc: 245 }, project: 'p', agent: 'claude', root: '/r', base: 'trunk' }), [
+    'prompt', 'spec', docRef(245), '-p', 'p', '--host', 'herdr', '--agent', 'claude', '--root', '/r', '--base', 'trunk', '--json'
+  ])
+  assert.deepEqual(specPromptArgs({ target: { epic: 1597 }, project: 'p', agent: 'cursor', root: '/r', base: 'main' }), [
+    'prompt', 'spec', 'task-1597', '-p', 'p', '--host', 'herdr', '--agent', 'cursor', '--root', '/r', '--base', 'main', '--json'
+  ])
+})
+
+test('proposalAcceptArgs and proposalDeclineArgs name the proposal as doc-<N>, the reason as it is', () => {
+  assert.deepEqual(proposalAcceptArgs({ doc: 301, project: 'p' }), ['proposal', 'accept', docRef(301), '-p', 'p', '--json'])
+  assert.deepEqual(proposalDeclineArgs({ doc: 301, project: 'p', reason: "Out of scope: it's another team's" }), [
+    'proposal', 'decline', docRef(301), '-p', 'p', '--reason', "Out of scope: it's another team's", '--json'
   ])
 })
 
@@ -364,9 +392,9 @@ test('readPlace: where an epic runs, read by git from any folder of its reposito
 })
 
 test('projectSpaceArgs: a new space in the root of the project, the tab named, the task last, on this machine', () => {
-  assert.deepEqual(projectSpaceArgs({ root: ROOT, name: 'prepare-9', run: ['codex', '--no-daemon'], text: LONG_TASK }), {
+  assert.deepEqual(projectSpaceArgs({ root: ROOT, name: 'idea-9', run: ['codex', '--no-daemon'], text: LONG_TASK }), {
     folder: ROOT,
-    tab: 'prepare-9',
+    tab: 'idea-9',
     argv: ['codex', '--no-daemon', LONG_TASK],
     machine: ''
   })
@@ -407,23 +435,19 @@ function handWorld({ inRoot = false, nested = false, cli } = {}) {
   return w
 }
 
-test('handToAgent: a preparation gets its task from the CLI, then a tab prepare-<N> in the space of the project', async () => {
+test('handToAgent: a task gets its task from the CLI, then a tab task-<id> in the space of the project', async () => {
   const { deps, log, shared } = handWorld({ inRoot: true })
-  const handed = await handToAgent(deps, hand('spec', 9))
-  assert.deepEqual(handed, { ok: true, data: { name: 'prepare-9', command: 'tab.new', space: 'sp181d9986e6b719db33e8a6e91303098d' } })
-  assert.deepEqual(steps(log), ['git worktree list --porcelain', 'npx prompt prepare', 'run tab.new', 'setShared'])
+  const handed = await handToAgent(deps, hand('review', 31))
+  assert.deepEqual(handed, { ok: true, data: { name: 'task-31', command: 'tab.new', space: 'sp181d9986e6b719db33e8a6e91303098d' } })
+  assert.deepEqual(steps(log), ['git worktree list --porcelain', 'npx prompt task', 'run tab.new', 'setShared'])
   const [list, cli, run] = log
   assert.deepEqual(list.args, ['-C', ROOT, 'worktree', 'list', '--porcelain'])
-  assert.deepEqual(cli.args, ['-y', `conport@${CLI_VERSION}`, 'prompt', 'prepare', '9', '-p', 'prk7m2qx9d', '--host', 'herdr', '--json'])
+  assert.deepEqual(cli.args, [
+    '-y', `conport@${CLI_VERSION}`, 'prompt', 'task', '31', '-p', 'prk7m2qx9d', '--host', 'herdr', '--mode', 'review', '--agent', 'claude', '--root', ROOT, '--json'
+  ])
   assert.deepEqual(cli.options, { cwd: ROOT, timeout: 300000 })
-  assert.deepEqual(run.args, { space: 'sp181d9986e6b719db33e8a6e91303098d', name: 'prepare-9', folder: ROOT, argv: ['claude', LONG_TASK] })
+  assert.deepEqual(run.args, { space: 'sp181d9986e6b719db33e8a6e91303098d', name: 'task-31', folder: ROOT, argv: ['claude', LONG_TASK] })
   assert.equal(shared.get(agentKey(GIT_DIR)), 'claude')
-})
-
-test('handToAgent: a plan to write takes the same task as a spec to prepare', async () => {
-  const { deps, log } = handWorld()
-  await handToAgent(deps, hand('plan', 9))
-  assert.deepEqual(log[1].args.slice(2), ['prompt', 'prepare', '9', '-p', 'prk7m2qx9d', '--host', 'herdr', '--json'])
 })
 
 test('handToAgent: a task in each mode, a new space in the root when no space stands there', async () => {
@@ -461,8 +485,8 @@ test('handToAgent: a pane in a copy nested in the root is not the space of the p
   // The pane of the nested copy comes first; the pane of the root after it: the root's space is taken.
   const both = handWorld({ inRoot: true, nested: true })
   assert.equal(both.deps.panes()[0].cwd, `${NESTED}/backend`)
-  const handed = await handToAgent(both.deps, hand('spec', 9))
-  assert.deepEqual(handed.data, { name: 'prepare-9', command: 'tab.new', space: 'sp181d9986e6b719db33e8a6e91303098d' })
+  const handed = await handToAgent(both.deps, hand('fix', 9))
+  assert.deepEqual(handed.data, { name: 'task-9', command: 'tab.new', space: 'sp181d9986e6b719db33e8a6e91303098d' })
 
   // Only the nested copy has a pane: no space of the project, a new one in the root.
   const only = handWorld({ nested: true })
@@ -479,4 +503,172 @@ test('handToAgent: git that cannot list the copies is refused before the CLI is 
   }
   assert.deepEqual(await handToAgent(deps, hand('do', 31)), { ok: false, error: { code: 'git_failed', fact: 'fatal: not a git repository', action: '' } })
   assert.deepEqual(steps(log), ['git worktree list --porcelain'])
+})
+
+const launch = (extra = {}) => ({
+  agent: 'claude',
+  project: 'prk7m2qx9d',
+  root: ROOT,
+  gitDir: GIT_DIR,
+  knownAgents: record('known-agents.json'),
+  ...extra
+})
+
+test('startIdea opens tab idea-<id> with the CLI task', async () => {
+  const { deps, log, shared } = handWorld({ inRoot: true })
+  const started = await startIdea(deps, launch({ task: 2116 }))
+  assert.deepEqual(started, { ok: true, data: { name: 'idea-2116', command: 'tab.new', space: 'sp181d9986e6b719db33e8a6e91303098d' } })
+  assert.deepEqual(steps(log), ['git worktree list --porcelain', 'npx prompt idea', 'run tab.new', 'setShared'])
+  const [, cli, run] = log
+  assert.deepEqual(cli.args, [
+    '-y', `conport@${CLI_VERSION}`, 'prompt', 'idea', '2116', '-p', 'prk7m2qx9d', '--host', 'herdr', '--agent', 'claude', '--root', ROOT, '--json'
+  ])
+  assert.deepEqual(cli.options, { cwd: ROOT, timeout: 300000 })
+  assert.deepEqual(run.args, { space: 'sp181d9986e6b719db33e8a6e91303098d', name: 'idea-2116', folder: ROOT, argv: ['claude', LONG_TASK] })
+  assert.equal(shared.get(agentKey(GIT_DIR)), 'claude')
+
+  // No space stands in the root: a new space there, the tab idea-<id>.
+  const alone = handWorld()
+  const fresh = await startIdea(alone.deps, launch({ task: 2116, agent: 'codex' }))
+  assert.deepEqual(fresh.data, { name: 'idea-2116', command: 'space.new', space: null })
+  assert.deepEqual(alone.log.find((entry) => entry.step === 'run').args, {
+    folder: ROOT,
+    tab: 'idea-2116',
+    argv: ['codex', '--no-daemon', LONG_TASK],
+    machine: ''
+  })
+})
+
+test('startIdea: an agent not installed, a refusal of the CLI and an answer without a task open nothing', async () => {
+  const missing = handWorld()
+  assert.equal((await startIdea(missing.deps, launch({ task: 2116, agent: 'cursor' }))).error.code, 'harness_missing')
+  assert.deepEqual(missing.log, [])
+
+  const refusal = { ok: false, error: { code: 'idea_taken', message: 'task 2116 is in review', action: 'press Refresh' } }
+  const taken = handWorld({ cli: () => ({ code: 2, stdout: JSON.stringify(refusal), stderr: '' }) })
+  assert.deepEqual(await startIdea(taken.deps, launch({ task: 2116 })), {
+    ok: false,
+    error: { code: 'idea_taken', fact: 'task 2116 is in review', action: 'press Refresh' }
+  })
+  assert.deepEqual(steps(taken.log), ['git worktree list --porcelain', 'npx prompt idea'])
+
+  const empty = handWorld({ cli: () => ({ code: 0, stdout: JSON.stringify({ ok: true }), stderr: '' }) })
+  assert.equal((await startIdea(empty.deps, launch({ task: 2116 }))).error.code, 'bad_output')
+  assert.deepEqual(steps(empty.log), ['git worktree list --porcelain', 'npx prompt idea'])
+})
+
+/** The world of handToAgent with the main checkout on `branch`, or detached for null. */
+function mainOn(branch) {
+  const w = handWorld({ inRoot: true })
+  w.deps.exec = ((exec) => async (command, args, options) => {
+    const answer = await exec(command, args, options)
+    if (command === 'npx' || !args.includes('list')) return answer
+    const main = branch === null ? 'detached' : `branch refs/heads/${branch}`
+    return { ...answer, stdout: answer.stdout.replace('branch refs/heads/main', main) }
+  })(w.deps.exec)
+  return w
+}
+
+test('startSpec passes the base of the main checkout', async () => {
+  const doc = mainOn('trunk')
+  const planned = await startSpec(doc.deps, launch({ target: { doc: 245 } }))
+  assert.deepEqual(planned, { ok: true, data: { name: docRef(245), command: 'tab.new', space: 'sp181d9986e6b719db33e8a6e91303098d' } })
+  assert.deepEqual(steps(doc.log), ['git worktree list --porcelain', 'npx prompt spec', 'run tab.new', 'setShared'])
+  const [list, cli, run] = doc.log
+  assert.deepEqual(list.args, ['-C', ROOT, 'worktree', 'list', '--porcelain'])
+  assert.deepEqual(cli.args.slice(2), [
+    'prompt', 'spec', docRef(245), '-p', 'prk7m2qx9d', '--host', 'herdr', '--agent', 'claude', '--root', ROOT, '--base', 'trunk', '--json'
+  ])
+  assert.deepEqual(run.args, { space: 'sp181d9986e6b719db33e8a6e91303098d', name: docRef(245), folder: ROOT, argv: ['claude', LONG_TASK] })
+  assert.equal(doc.shared.get(agentKey(GIT_DIR)), 'claude')
+
+  // An epic with a spec and no plan: the tab plan-<epic>, the epic named task-<N>.
+  const epic = mainOn('main')
+  const built = await startSpec(epic.deps, launch({ target: { epic: 1597 }, agent: 'codex' }))
+  assert.deepEqual(built.data, { name: 'plan-1597', command: 'tab.new', space: 'sp181d9986e6b719db33e8a6e91303098d' })
+  assert.deepEqual(epic.log[1].args.slice(2), [
+    'prompt', 'spec', 'task-1597', '-p', 'prk7m2qx9d', '--host', 'herdr', '--agent', 'codex', '--root', ROOT, '--base', 'main', '--json'
+  ])
+})
+
+test('startSpec: a detached main checkout has no base and is refused before the CLI is asked', async () => {
+  const { deps, log } = mainOn(null)
+  const refused = await startSpec(deps, launch({ target: { doc: 245 } }))
+  assert.equal(refused.error.code, 'root_detached')
+  assert.deepEqual(steps(log), ['git worktree list --porcelain'])
+})
+
+test('startSpec: git listing no checkout is git_failed, refused before the CLI is asked', async () => {
+  const { deps, log } = handWorld()
+  deps.exec = async (command, args, options) => {
+    log.push({ step: 'exec', command, args, options })
+    return { code: 0, stdout: '', stderr: '' }
+  }
+  const refused = await startSpec(deps, launch({ target: { doc: 245 } }))
+  assert.deepEqual(refused, { ok: false, error: { code: 'git_failed', fact: 'git listed no checkout of the repository', action: '' } })
+  assert.deepEqual(steps(log), ['git worktree list --porcelain'])
+})
+
+test('startSpec: a refusal of the CLI opens nothing and remembers nothing', async () => {
+  const refusal = { ok: false, error: { code: 'spec_planned', message: `${docRef(245)} has its plan`, action: 'press Refresh; the epic is In work' } }
+  const { deps, log } = handWorld({ cli: () => ({ code: 2, stdout: JSON.stringify(refusal), stderr: '' }) })
+  const refused = await startSpec(deps, launch({ target: { doc: 245 } }))
+  assert.equal(refused.error.code, 'spec_planned')
+  assert.deepEqual(steps(log), ['git worktree list --porcelain', 'npx prompt spec'])
+})
+
+/** An exec of the CLI alone that answers `answer` and logs each call. */
+function cliOnly(answer) {
+  const calls = []
+  const exec = async (command, args, options) => {
+    calls.push({ command, args, options })
+    return answer(args)
+  }
+  return { exec, calls }
+}
+
+test('acceptProposal answers the task; a refusal opens nothing', async () => {
+  const runs = []
+  const run = (name) => runs.push(name)
+  const accepted = cliOnly(() => ({ code: 0, stdout: JSON.stringify({ task: 2301 }), stderr: '' }))
+  assert.deepEqual(await acceptProposal({ exec: accepted.exec, run }, { doc: 301, project: 'prk7m2qx9d', root: ROOT }), { ok: true, data: { task: 2301 } })
+  assert.deepEqual(accepted.calls, [
+    { command: 'npx', args: ['-y', `conport@${CLI_VERSION}`, 'proposal', 'accept', docRef(301), '-p', 'prk7m2qx9d', '--json'], options: { cwd: ROOT, timeout: 300000 } }
+  ])
+
+  const body = { ok: false, error: { code: 'proposal_closed', message: `proposal ${docRef(301)} is declined`, action: 'refresh the list' } }
+  const closed = cliOnly(() => ({ code: 2, stdout: JSON.stringify(body), stderr: '' }))
+  assert.deepEqual(await acceptProposal({ exec: closed.exec, run }, { doc: 301, project: 'prk7m2qx9d', root: ROOT }), {
+    ok: false,
+    error: { code: 'proposal_closed', fact: `proposal ${docRef(301)} is declined`, action: 'refresh the list' }
+  })
+
+  // An answer without a task number is bad_output.
+  for (const answer of [{}, { task: 'task-2301' }, { task: 0 }]) {
+    const odd = cliOnly(() => ({ code: 0, stdout: JSON.stringify(answer), stderr: '' }))
+    assert.equal((await acceptProposal({ exec: odd.exec, run }, { doc: 301, project: 'p', root: ROOT })).error.code, 'bad_output', JSON.stringify(answer))
+  }
+  assert.deepEqual(runs, [])
+})
+
+test('declineProposal without a reason is reason_missing', async () => {
+  for (const reason of ['', '   ', undefined]) {
+    const { exec, calls } = cliOnly(() => ({ code: 0, stdout: '{}', stderr: '' }))
+    assert.deepEqual(await declineProposal({ exec }, { doc: 301, project: 'p', root: ROOT, reason }), {
+      ok: false,
+      error: { code: 'reason_missing', fact: '', action: '' }
+    })
+    assert.deepEqual(calls, [])
+  }
+})
+
+test('declineProposal passes the reason to the CLI and answers nothing more', async () => {
+  const { exec, calls } = cliOnly(() => ({ code: 0, stdout: JSON.stringify({ doc: 301, state: 'declined' }), stderr: '' }))
+  assert.deepEqual(await declineProposal({ exec }, { doc: 301, project: 'p', root: ROOT, reason: ' Not ours. ' }), { ok: true, data: null })
+  assert.deepEqual(calls[0].args.slice(2), ['proposal', 'decline', docRef(301), '-p', 'p', '--reason', 'Not ours.', '--json'])
+  assert.deepEqual(calls[0].options, { cwd: ROOT, timeout: 300000 })
+
+  const body = { ok: false, error: { code: 'not_a_proposal', message: `${docRef(301)} is not a proposal`, action: 'name a proposal' } }
+  const refused = cliOnly(() => ({ code: 2, stdout: JSON.stringify(body), stderr: '' }))
+  assert.equal((await declineProposal({ exec: refused.exec }, { doc: 301, project: 'p', root: ROOT, reason: 'x' })).error.code, 'not_a_proposal')
 })

@@ -1,15 +1,19 @@
 # ConPort
 
-A panel on the right of the window that runs the epics and the tasks of a
-[ConPort](https://conport.app) project from Herdr. You pick a project — a git
-repository one of your spaces stands in — and see three tabs: the epics ready to
-start, the epics to prepare, and the tasks outside the epics. The screen of an
-epic picks its harness (Claude Code, Codex or Cursor) and the subagent type of
-each of its four roles, then **Start** opens a space `epic-<N>` on a working
-copy of the epic with the harness leading the epic in its tab `lead`. A sheet
-hands a preparation or a task to an agent in a tab of the project. The agents ask
-their questions in their own terminals, and Herdr calls you when one is blocked.
-The panel's words are quoted here as the mod shows them.
+A panel on the right of the window that shows the work of a
+[ConPort](https://conport.app) project by its SDD stage and starts it from
+Herdr. You pick a project — a git repository one of your spaces stands in — and
+see four sections, the nearest to a release on top: the epics In work, the
+specs waiting for their plan, the ideas and the team's proposals not worked
+through, and the epics outside SDD. **Brainstorm** talks an idea through with
+an agent, **Plan & build** has an agent write the plan of a spec and build the
+epic it brings, and the screen of an epic picks its harness (Claude Code, Codex
+or Cursor) and the subagent type of each of its four roles, then **Start** opens
+a space `epic-<N>` on a working copy of the epic with the harness leading the
+epic in its tab `lead`. A row another session is at shows `In progress`, from
+whatever client took it. The agents ask their questions in their own terminals,
+and Herdr calls you when one is blocked. The panel's words are quoted here as
+the mod shows them.
 
 ![ConPort](preview.png)
 
@@ -50,26 +54,45 @@ The panel is a column the full height of the window, 320px wide on the right
      (for a submodule or a worktree of a bare repository
      `This repository is a submodule or a worktree of a bare repository: ConPort settings files are not read here. Bind a project below.`),
      a field `name or handle` and **Remember**;
-   - **the tabs**: three chips 24px high, `Ready to run · <n>`,
-     `Prepare · <n>`, `Tasks · <n>`, the chosen one with an `accent` border
-     on `selected`;
-     - **Ready to run**: the epics with a spec and a plan, grouped under their
-       milestone's title in semibold (`No milestone` last); a release milestone
-       has a `dim` line `Release · 2 epics open` or `Release · ready to close`.
-       Each epic is a row `<N> · <title>` with a line under it:
+   - **the sections**, one scrolling list. Each section is a header — `▾` (`▸`
+     while folded), its title and count in semibold, its caption in 11px
+     `dim` — that folds or opens it on a click:
+     - **In work · <n>** `spec + plan`, open: the open epics with a spec and a
+       plan, grouped under their milestone's title (`No milestone` last); a
+       release milestone has a `dim` line `Release · 2 epics open` or
+       `Release · ready to close`. Each epic is a row `<N> · <title>` with
        `Not started · 4 tasks`, `In progress · 2 of 5 closed`, or
-       `Ready to merge · 5 of 5 closed` in the theme's `done` color;
-     - **Prepare**: a `dim` hint, then the epics without a spec
-       (`No spec`, button **Prepare**) or without a plan
-       (`Spec, no plan`, button **Write plan**); one that
-       preparation cannot fix is greyed out without a button;
-     - **Tasks**: the open tasks outside the epics in three groups,
-       `In review` (button **Review**), `In progress` (button **Fix** on
-       a task the review sent back, `Changes requested`) and
-       `To do` by priority (`High · not started`, button
-       **Hand to agent**); a bug's line starts with `Bug · `;
-   - **the screen of an epic**, instead of the tabs: **← Epics** and the
-     project's name; `<N> · <milestone>` in 11px `dim`; the title in 15px
+       `Ready to merge · 5 of 5 closed` in the theme's `done` color, and the
+       button **Start**; a click on the row or on **Start** opens the screen of
+       the epic. One that cannot start says why (`Cannot start: <reason>`),
+       greyed out, without a button;
+     - **Specs · <n>** `spec, no plan`, open: the spec documents waiting for
+       their plan, `doc-<N> · <title>` with the priority of their idea
+       (`Medium · no plan`), and the epics with a spec and no plan,
+       `<N> · <title>` with `Epic <N> · no plan`; buttons **Plan & build** and
+       **Open spec**;
+     - **Ideas · <n>** `not worked through`, open: the root tasks without a spec
+       by priority (`High · not started`, a bug's line starting with `Bug · `)
+       with **Brainstorm**; one in review with **Review**, one the review sent
+       back (`Changes requested`) with **Fix**, a blocked one with `Blocked`
+       and no button. The team's proposals stand among them as priority 3,
+       after the ideas of that priority: `doc-<N> · <title>`,
+       `Proposal · <author>`, buttons **Brainstorm** and **Decline**. Under
+       them, `1 proposal is not shown: its state line cannot be read` when the
+       CLI could not read one;
+     - **Outside SDD · <n>** `no spec`, folded: the epics without a spec by
+       milestone, `2 of 3 closed` under each, and their open tasks under them,
+       indented, with **Hand to agent**, **Review** or **Fix**.
+
+     A taken row — an idea or an epic another session is at — says
+     `In progress · updated 14:05` (`updated 16 Nov 14:05` on another day: the
+     last change of the task, in this machine's time) and offers
+     **Show terminal** instead of its start when this host opened its
+     terminal, else **Take over**. A spec whose plan is written from this host
+     offers **Show terminal** too. An empty section says so in `dim`
+     (`No spec waits for its plan.`);
+   - **the screen of an epic**, instead of the sections: **← Sections** and
+     the project's name; `<N> · <milestone>` in 11px `dim`; the title in 15px
      semibold; badges `Spec ✓`, `Plan ✓` and where the epic stands. Then
      `Harness` with three chips (`Claude Code`, `Codex`, `Cursor`; one not
      installed greyed out as `Codex — not found`), `Roles` with four fields
@@ -80,11 +103,17 @@ The panel is a column the full height of the window, 320px wide on the right
      (`to do 1 · in progress 1 · in review 0 · blocked 0 · done 3`,
      `parked` only when not zero) and every task of the epic, its status on the
      right, a closed one in `done`, a cancelled one dimmed at the end;
-   - **a sheet**, instead of the tabs: a card with `Prepare “<title>”` (or
-     `Write plan`, `Hand to agent`, `Review`, `Fix`), what the agent
-     will do in three numbered steps (numbers in `accent`), a chip per installed
-     agent (`· last time` on the one of last time), **Cancel** and the
-     button of the sheet.
+   - **a sheet**, instead of the sections: a card with `Brainstorm “<title>”`
+     (or `Plan & build`, `Hand to agent`, `Review`, `Fix`), the row's number
+     and stage in `dim`, what the agent will do in three numbered steps
+     (numbers in `accent`), a chip per installed agent (`· last time` on the
+     one of last time), **Cancel** and the button of the sheet. The sheet of
+     **Decline** has a field `why the proposal is declined` under
+     `Why it is declined` instead of the steps and the agents;
+   - **Take over**, instead of the sections: a card
+     `Take over “<title>”?` with `Another session may be working on it`,
+     **Cancel** and **Take over**, which opens the same sheet (or the screen
+     of the epic) as the row's start.
 4. A 1px rule, then the footer in 11px `dim`: `mod <version> · CLI <CLI_VERSION>` —
    `version` of `mods/conport/mod.json` and `CLI_VERSION` of
    `mods/conport/version.js`.
@@ -97,10 +126,18 @@ color is a token of `theme()`: the panel follows the person's theme.
 
 - **Reading.** On open and on **Refresh** the mod reads the spaces of this
   machine, the git directory of each of their folders, the agents Herdr can
-  start, then the project's epics and tasks through the ConPort CLI. An epic's
-  working copy, its tasks and the subagent types of its harness are read when
-  the epic is opened. Nothing is read on a timer; Herdr redraws the panel when
-  `spaces()`, `panes()` or `agents()` change.
+  start, then the project's stages through the ConPort CLI (`sdd list`). While
+  the view of the mod lives a timer of one minute runs the light read
+  `sdd list --taken`: the root tasks in progress, which mark the taken rows. The
+  list is read in full again when the light read shows a number the list does
+  not hold or no longer lists a row the list holds in progress, right after a
+  start of the mod's own, and every 10 minutes; a change from another client
+  that takes nothing (a new idea, an uploaded spec) shows within 10 minutes or
+  on **Refresh**. Reads never overlap: a tick starts nothing while a read
+  runs. A full read that fails keeps the list shown with the refusal above it.
+  An epic's working copy, its tasks and the subagent types of its harness are
+  read when the epic is opened. Herdr redraws the panel when `spaces()`,
+  `panes()` or `agents()` change.
 - **Projects.** Every space of this machine (`machine === null`) gives the
   folders of its panes; folders of one repository — its main checkout and its
   worktrees, `~/.herdr/worktrees/` included — merge into one project by their
@@ -138,16 +175,31 @@ color is a token of `theme()`: the panel follows the person's theme.
   `idle` and `done` show in Herdr itself, which calls the person when the lead
   session is blocked or done. A status of any kind only tells the mod that the
   session is live.
-- **Sheets.** **Prepare**, **Write plan**, **Hand to agent**,
-  **Review** and **Fix** open a sheet; its button opens the chosen
-  agent with its task in a tab `prepare-<N>` or `task-<id>` of the space whose
-  pane stands in the main checkout, or a new space there. The notice says where
-  it opened and when to press **Refresh**.
+- **Sheets.** **Brainstorm** of an idea opens the chosen agent with the task
+  `prompt idea` in a tab `idea-<id>`; **Brainstorm** of a proposal first has
+  the CLI accept it (`proposal accept`: it answers the idea the proposal
+  became), then opens that idea the same way. **Plan & build** opens the task
+  `prompt spec` in a tab `doc-<N>` (a spec document) or `plan-<N>` (an epic),
+  the branch of the main checkout as its base. **Hand to agent**, **Review**
+  and **Fix** open `prompt task` in a tab `task-<id>`. Each tab opens in the
+  space whose pane stands in the main checkout, or a new space there; the
+  notice says where it opened. **Decline** sends the reason with
+  `proposal decline` and opens no agent; without a reason it says
+  `No reason is given — write why the proposal is declined.`
+- **Terminals.** A row's terminal on this host is a live agent in its tab:
+  `idea-<id>` or `task-<id>` for an idea, `doc-<N>` or `plan-<N>` for a spec,
+  and for an epic its lead session in `~/.herdr/worktrees/<repo>/epic-<N>`, or
+  the tab of the plan, of the spec or of the idea it was made from.
+  **Show terminal** selects its space (`space.select`), then its tab in that
+  space (`tab.select`): the tabs of the rows share the space of the root.
+  **Open spec** opens the
+  document in the dashboard, `https://me.conport.app/t/<team>/p/<handle>/documents?id=<N>`,
+  the team read once per project from the project's address.
 - **Remembered.** Per repository: the harness and the four role types of each
   started epic, the harness of the last start, the agent of the last sheet and
   the project binding, in Herdr's shared state under keys starting with
-  `conport:`. Per copy of the mod (`localStorage`): the tab, the project and the
-  open epic. A choice not started lives until the mod closes.
+  `conport:`. Per copy of the mod (`localStorage`): which sections are folded,
+  the project and the open epic. A choice not started lives until the mod closes.
 - **Refusals.** One line each, what is wrong and one action:
   `npx is not found in Herdr's environment — install Node 18+ and press Refresh.`,
   `No ConPort API key — add CONPORT_API_KEY to ~/.config/conport/.env and press Refresh.`,
@@ -168,19 +220,23 @@ color is a token of `theme()`: the panel follows the person's theme.
   answers), `git.js` (checkouts, branches, the copy's path), `projects.js`,
   `harness.js` (the three harnesses from `knownAgents()`), `session.js` (the
   live session, the space a start uses, the wait after a start), `launch.js`
-  (the start of an epic, a sheet's hand-off), `screen.js` (the words),
+  (the start of an epic, of an idea and of a spec, a sheet's hand-off, the
+  answers to a proposal), `screen.js` (the words, the sections, the buttons of
+  a row, the timer's step), `reader.js` (the full and the light reads of the
+  list and when each runs, the CLI and the clock handed in),
   `refusals.js`, `state.js` (shared state keys), `version.js` (`MOD_VERSION`,
   `CLI_VERSION`); `mod.json` `{"place": "right", "version": "<version>"}`.
 - `gpui-kit` (`div`, `View`) and `gpui-base` (`h_flex`, `v_flex`, `Input`,
   `InputState`, `Scrollbar`).
 - `herdr`: `spaces`, `panes`, `agents`, `focused`, `knownAgents`, `home`,
   `theme`, `exec`, `run`, `shared`, `setShared`, `readTextFile`; `cx.spawn`,
-  `cx.timer.after`, `localStorage`.
+  `cx.timer.after`, `cx.timer.every`, `cx.open_url`, `localStorage`.
 - Commands: `space.new {name, folder, tab, argv, machine: ""}`,
-  `tab.new {space, name, folder, argv}`, `space.select {id}`.
+  `tab.new {space, name, folder, argv}`, `space.select {id}`, `tab.select {id}`.
 - Programs, through `exec`: `npx -y conport@<CLI_VERSION> …` (timeout 300 s) —
-  `epic list`, `task list`, `epic subagents`, `api tasks list` and
-  `prompt epic|prepare|task`, which reach the ConPort service over the network
+  `sdd list`, `sdd list --taken`, `epic subagents`, `api tasks list`,
+  `api projects get`, `prompt epic|idea|spec|task` and
+  `proposal accept|decline`, which reach the ConPort service over the network
   with the key the CLI reads itself; `git` — `worktree list --porcelain`,
   `for-each-ref`, `rev-parse --path-format=absolute --git-common-dir`,
   `worktree add` (timeout 600 s), and, only when `.conport.local.json` is
@@ -229,11 +285,15 @@ color is a token of `theme()`: the panel follows the person's theme.
 
 - `herdr-app check ~/.config/herdr-app/mods/conport` passes.
 - The panel opens on the right with the project of the focused space and its
-  three tabs with counts; the footer shows the mod and CLI versions.
+  four sections with counts, Outside SDD folded; the footer shows the mod and
+  CLI versions.
 - A repository whose `.conport.json` has `project_name` lists that project's
-  epics and tasks; one without it (and without `CONPORT_PROJECT_NAME` in the
-  old place) asks for a handle; after **Remember** its epics and tasks are
-  listed.
+  stages; one without it (and without `CONPORT_PROJECT_NAME` in the old place)
+  asks for a handle; after **Remember** its stages are listed.
+- An idea or an epic taken from another client shows
+  `In progress · updated <time>` within a minute, with **Take over**.
+- **Brainstorm** on an idea opens a tab `idea-<id>` with the chosen agent;
+  **Plan & build** on a spec opens a tab `doc-<N>`.
 - Opening an epic shows its harness chips, four role fields filled with the
   `conport:sdd-*` types, and its tasks with counts.
 - **Start** opens a space `epic-<N>` with a tab `lead` in
@@ -242,8 +302,8 @@ color is a token of `theme()`: the panel follows the person's theme.
   is seen.
 - Closing that tab brings **Start** back with the note that the copy is
   there; starting again opens a tab `lead` in the same space.
-- **Hand to agent** on a task opens a tab `task-<id>` in the project's space
-  with the chosen agent and its task.
+- **Hand to agent** on a task of an epic outside SDD opens a tab `task-<id>`
+  in the project's space with the chosen agent and its task.
 - Without `npx` in Herdr's environment the panel shows the `npx` line, not an
   empty list.
 

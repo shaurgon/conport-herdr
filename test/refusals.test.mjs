@@ -11,16 +11,38 @@ test('each refusal of the spec is one English line with what is wrong and one ac
     no_api_key: 'No ConPort API key — add CONPORT_API_KEY to ~/.config/conport/.env and press Refresh.',
     cli_timeout: 'The ConPort CLI did not answer in 300 s — check the network and press Refresh.',
     epic_not_found: 'The epic is not among the open epics of the project — press Refresh.',
-    task_not_found: 'The task is not among the open tasks outside the epics — press Refresh.',
-    epic_ready: 'The epic is already ready to run — press Refresh.',
+    task_not_found: 'The task is neither an idea nor a task of an epic outside SDD — press Refresh.',
     task_moved: 'The task no longer waits for this step — press Refresh.',
-    epic_not_ready: 'The epic has no spec or no plan — prepare it in the Prepare tab.',
-    epic_not_preparable: 'The epic is not ready to run for a reason preparation cannot fix — look at it in the Prepare tab.',
+    epic_not_ready: 'The epic has no spec or no plan — plan it in the Specs section.',
     root_detached: "The repository's main working copy is not on a branch, so the epic has no base — check out a branch in the main working copy.",
     role_invalid: 'The subagent type is not a plain name — choose a type for the role from the list.',
     no_project: "The repository has no ConPort project — enter the project's name or handle."
   }
   for (const [code, expected] of Object.entries(lines)) assert.equal(line(code), expected, code)
+  // The codes of the tabs and of the preparation are gone with them: the CLI's own text speaks.
+  for (const code of ['epic_ready', 'epic_not_preparable']) assert.ok(!(code in LINES), code)
+})
+
+test('epic_not_ready names the Specs section; the new codes have one action each', () => {
+  assert.equal(line('epic_not_ready'), 'The epic has no spec or no plan — plan it in the Specs section.')
+  const lines = {
+    not_an_idea: 'The task is no longer an idea — press Refresh.',
+    idea_taken: 'The idea is no longer to do or in progress — press Refresh.',
+    // The CLI says it for an epic without a spec and for a document that is not a spec.
+    no_spec: 'No spec to plan: the epic has none, or the document is not one — press Refresh.',
+    spec_planned: 'The spec already has its plan: its epic is In work — press Refresh.',
+    not_a_proposal: 'The document is not a proposal — press Refresh.',
+    proposal_closed: 'The proposal is already answered — press Refresh.',
+    // A decline of a proposal whose idea an accept left and someone took up.
+    proposal_accepted: 'The proposal already has its idea, and the idea is taken up — press Refresh.',
+    reason_missing: 'No reason is given — write why the proposal is declined.'
+  }
+  for (const [code, expected] of Object.entries(lines)) {
+    assert.equal(line(code), expected, code)
+    // One action: the line has one dash and its action one sentence.
+    assert.equal(expected.split(' — ').length, 2, code)
+    assert.equal(LINES[code][1].split('. ').length, 1, code)
+  }
 })
 
 test('npx_missing carries the text of the rejection: exec rejects alike for a missing folder', () => {
@@ -78,6 +100,7 @@ const MOD_REFUSALS = [
   { code: 'worktree_failed', fact: 'x', action: '', worktree: '/w/x' }, // launch.js
   { code: 'harness_missing', fact: 'Cursor', action: '' }, // harness.js, main.js
   { code: 'no_project' }, // main.js
+  { code: 'reason_missing', fact: '', action: '' }, // launch.js: a decline without a reason
   { code: 'agents_unknown', fact: 'x', action: 'press Refresh.' }, // main.js, with its own action
   thrownRefusal(new Error('x')) // refusals.js: an action of the mod that threw
 ]

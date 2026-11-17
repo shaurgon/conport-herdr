@@ -1,28 +1,28 @@
-// The ConPort mod of Herdr: a panel that runs the epics and the tasks of a ConPort project. The
-// projects are the git repositories the spaces of this machine stand in; three tabs list the
-// epics to start, the epics to prepare and the tasks outside the epics; the screen of an epic
-// chooses its harness and the subagent type of each role and starts its lead session; a sheet
-// hands a preparation or a task to an agent. ConPort, git and the agents are read when the mod
-// opens and on Refresh, never on a timer; Herdr redraws the mod when its live data changes.
+// The ConPort mod of Herdr: a panel that shows the work of a ConPort project by SDD stage and
+// starts it. The projects are the git repositories the spaces of this machine stand in; four
+// sections list the epics In work, the specs waiting for their plan, the ideas and proposals not
+// worked through, and the epics outside SDD; the screen of an epic chooses its harness and the
+// subagent type of each role and starts its lead session; a sheet opens an agent on an idea, a
+// proposal, a spec or a task, or declines a proposal. The list is read in full when the mod opens,
+// on Refresh, after a start of its own and every 10 minutes; every minute the light read of the
+// taken rows marks them and asks for the full read when the set changed. Herdr redraws the mod
+// when its live data changes.
 import { div, View } from 'gpui-kit'
 import { h_flex, InputState, Scrollbar, v_flex } from 'gpui-base'
 import { agents, exec, focused, home, knownAgents, panes, readTextFile, run, setShared, shared, spaces, theme } from 'herdr'
 import {
-  epicListArgs,
-  epicTabs,
-  HAND_BUTTONS,
+  projectGetArgs,
   readEpicTasks,
   rejectionText,
   runCli,
+  sddSections,
   subagentsArgs,
   taskCounts,
-  taskCountsLine,
-  taskListArgs,
-  taskTabs
+  taskCountsLine
 } from './cli.js'
-import { gitDirArgs } from './git.js'
+import { epicWorktreePath, gitDirArgs } from './git.js'
 import { DEFAULT_ROLES, harnessChoices } from './harness.js'
-import { handToAgent, readPlace, startEpic } from './launch.js'
+import { acceptProposal, declineProposal, handToAgent, readPlace, startEpic, startIdea, startSpec } from './launch.js'
 import {
   bindingParts,
   gitDirOf,
@@ -34,8 +34,10 @@ import {
   settleGitDir,
   spaceFolders
 } from './projects.js'
+import { ListReader } from './reader.js'
 import { refusalLine, thrownRefusal } from './refusals.js'
 import {
+  documentUrl,
   epicState,
   epicTaskRow,
   FIXER_NOTE,
@@ -43,37 +45,42 @@ import {
   harnessLabel,
   NO_AGENT,
   NO_MILESTONE,
-  PREPARE_HINT,
-  PREPARE_STATE,
+  POLL_TAKEN_MS,
   releaseLine,
   RESTART_NOTE,
   ROLE_KEYS,
   ROLE_TITLES,
   roleChoice,
   roleLists,
+  rowActions,
+  rowLine,
+  rowTaken,
+  SECTIONS,
+  sectionLabel,
+  sectionsOpen,
   SHEET_STEPS,
   sheetAgent,
   sheetText,
+  skippedLine,
   startNotice,
   startView,
-  TAB_TITLES,
-  tabLabel,
-  TASK_GROUPS,
-  taskLine,
+  TAKE_OVER_CONFIRM,
+  takenMap,
   TYPE_MISSING_NOTE
 } from './screen.js'
-import { endSeenHolds, epicSession, HOLD_MS, releaseHold, startHold } from './session.js'
+import { endSeenHolds, epicSession, HOLD_MS, releaseHold, rowSession, showTerminalCommands, startHold } from './session.js'
 import { agentKey, bindingKey, chosenFor } from './state.js'
 import { parts } from './ui.js'
 import { CLI_VERSION, MOD_VERSION } from './version.js'
 
 /** @import { AsyncContext, Context, Element } from 'gpui-kit' */
-/** @import { Epic, EpicList, EpicTabs, EpicTask, TaskList, TaskTabs } from './cli.js' */
+/** @import { EpicTask, HandRow, InWorkRow, ProposalRow, SddList, SddSections, SpecRow } from './cli.js' */
 /** @import { Place } from './git.js' */
 /** @import { KnownAgent, RoleKey, Roles } from './harness.js' */
 /** @import { Binding, GitDirAnswer, Project } from './projects.js' */
 /** @import { Ok, Refusal, Result } from './refusals.js' */
-/** @import { Sheet, Subagents, Tab } from './screen.js' */
+/** @import { ActionRow, SectionKey, Sheet, Subagents } from './screen.js' */
+/** @import { Session } from './session.js' */
 /** @import { HoldEntry } from './session.js' */
 /** @import { Parts, Theme } from './ui.js' */
 
@@ -82,8 +89,26 @@ import { CLI_VERSION, MOD_VERSION } from './version.js'
  * @typedef {{harness: string, roles: Roles}} Choice
  */
 
-/** @type {Tab[]} */
-const TABS = ['launch', 'prepare', 'tasks']
+/**
+ * A Take over waiting for the person's yes: the title of the row and what a yes starts.
+ * @typedef {{title: string, go: (cx: Context) => void}} TakeOver
+ */
+
+/**
+ * What a press of a button of a row does, by the word of the button.
+ * @typedef {Partial<Record<string, (cx: Context) => void>>} RowHandlers
+ */
+
+/** What a section says when it holds no row. */
+const EMPTY = {
+  in_work: 'No epic has a spec and a plan.',
+  specs: 'No spec waits for its plan.',
+  ideas: 'No idea or proposal waits.',
+  outside: 'No epic is outside SDD.'
+}
+
+/** The buttons that open an agent: off while no agent that takes a task is installed. */
+const AGENT_BUTTONS = new Set(['Brainstorm', 'Plan & build', 'Take over', 'Hand to agent', 'Review', 'Fix'])
 
 /**
  * A value this copy of the mod keeps for the person (its tab, its project): none when storage fails.
@@ -122,6 +147,8 @@ export default class ConportMod extends View {
    */
   init(_props, cx) {
     this.search = InputState.new({ placeholder: 'Find project' })
+    this.reason = InputState.new({ placeholder: 'why the proposal is declined' })
+    this.reason.on('submit', (_event, cx) => this.submitSheet(cx))
     this.search.on('change', (_event, cx) => cx.notify())
     this.bindDraft = InputState.new({ placeholder: 'name or handle' })
     this.bindDraft.on('submit', (_event, cx) => this.rememberProject(cx))
@@ -144,14 +171,32 @@ export default class ConportMod extends View {
     this.pickerOpen = false
     /** @type {Binding | null} */
     this.binding = null
-    /** @type {Result<EpicList> | null} */
-    this.epics = null
-    /** @type {Result<TaskList> | null} */
-    this.tasks = null
-    // What the storage holds is checked against the tabs before it is used.
-    const tab = /** @type {Tab} */ (stored('conport.tab', 'launch'))
-    /** @type {Tab} */
-    this.tab = TABS.includes(tab) ? tab : 'launch'
+    // The context of the view: what a read that ends redraws, whichever call started it.
+    this.view = cx
+    /**
+     * The reads of the stages: the full list, the light read of the taken rows, and when each runs.
+     * @type {ListReader}
+     */
+    this.reader = new ListReader({
+      run: (args, cwd) => runCli(exec, args, cwd),
+      now: () => Date.now(),
+      target: () => {
+        const project = this.current()
+        const handle = this.binding?.project ?? null
+        return project === null || handle === null ? null : { project: handle, root: project.root }
+      },
+      changed: (full) => this.listChanged(full)
+    })
+    /** @type {{list: SddList, sections: SddSections} | null} */
+    this.sectionsOf = null
+    // What the storage holds is checked against the sections before it is used.
+    /** @type {Record<SectionKey, boolean>} */
+    this.open = sectionsOpen(stored('conport.sections', null))
+    /**
+     * The project's address `<team>/<name>`, read on the first Open spec of the project.
+     * @type {string | null}
+     */
+    this.canonical = null
     /**
      * The epic open in each project, by its git directory.
      * @type {Record<string, number>}
@@ -175,6 +220,8 @@ export default class ConportMod extends View {
     this.expanded = null
     /** @type {Sheet | null} */
     this.sheet = null
+    /** @type {TakeOver | null} */
+    this.takeOver = null
     /** @type {string | null} */
     this.sheetAgent = null
     this.confirmAgain = false
@@ -192,6 +239,10 @@ export default class ConportMod extends View {
     this.projectLoad = 0
     this.epicLoad = 0
     this.refresh(cx)
+    // The light read every minute, while the view of the mod lives: the timer is the view's.
+    cx.timer.every(POLL_TAKEN_MS, (cx) => {
+      if (!this.reading) cx.spawn(async () => this.reader.tick())
+    })
   }
 
   // --- reading ---------------------------------------------------------------------------------
@@ -265,7 +316,8 @@ export default class ConportMod extends View {
    * @returns {string | null}
    */
   handle() {
-    return this.epics?.ok ? (this.epics.data.project ?? this.binding?.project ?? null) : null
+    const list = this.reader.list
+    return list?.ok ? (list.data.project ?? this.binding?.project ?? null) : null
   }
 
   /** @param {AsyncContext} cx */
@@ -273,12 +325,13 @@ export default class ConportMod extends View {
     const mine = ++this.projectLoad
     this.epicLoad++
     this.binding = null
-    this.epics = null
-    this.tasks = null
+    this.reader.reset()
+    this.canonical = null
     this.place = null
     this.epicTasks = null
     this.subagents = {}
     this.sheet = null
+    this.takeOver = null
     this.confirmAgain = false
     this.expanded = null
     cx.notify()
@@ -295,27 +348,52 @@ export default class ConportMod extends View {
     this.binding = projectBinding(texts, shared(bindingKey(project.gitDir)))
     cx.notify()
     if (this.binding.project === null) return
-    const [epics, tasks] = await Promise.all([
-      runCli(exec, epicListArgs(this.binding.project), project.root),
-      runCli(exec, taskListArgs(this.binding.project), project.root)
-    ])
-    if (mine !== this.projectLoad) return
-    this.epics = epics
-    this.tasks = tasks
-    if (this.opened[project.gitDir] !== undefined && this.openedEpic() === null) this.setOpened(null)
-    cx.notify()
-    if (this.openedEpic() !== null) await this.loadEpic(cx)
+    await this.reader.read('full')
   }
 
   /**
-   * The epic open in the chosen project, while it is listed and can run.
-   * @returns {Epic | null}
+   * The full read after a start of the mod's own: the row it started is taken now.
+   * @param {Context} cx
+   */
+  readAfterStart(cx) {
+    cx.spawn(async () => this.reader.read('full'))
+  }
+
+  /**
+   * A read changed what is shown: redraw; after a full read, the open epic closes when it is no
+   * longer In work, and is read when it was opened before the list came.
+   * @param {boolean} full
+   */
+  listChanged(full) {
+    const project = this.current()
+    if (full && project !== null) {
+      if (this.opened[project.gitDir] !== undefined && this.openedEpic() === null) this.setOpened(null)
+      else if (this.openedEpic() !== null && this.place === null && this.epicTasks === null) this.view.spawn(async (cx) => this.loadEpic(cx))
+    }
+    this.view.notify()
+  }
+
+  /**
+   * The four sections of the last full read; the same object while the list is the same.
+   * @returns {SddSections | null}
+   */
+  sections() {
+    const list = this.reader.list
+    if (!list?.ok) return null
+    if (this.sectionsOf?.list !== list.data) this.sectionsOf = { list: list.data, sections: sddSections(list.data) }
+    return this.sectionsOf.sections
+  }
+
+  /**
+   * The epic open in the chosen project, while it is In work and can run.
+   * @returns {InWorkRow | null}
    */
   openedEpic() {
     const project = this.current()
-    if (project === null || !this.epics?.ok) return null
+    const sections = this.sections()
+    if (project === null || sections === null) return null
     const id = this.opened[project.gitDir]
-    return (this.epics.data.epics ?? []).find((epic) => epic.id === id && epic.runnable === true) ?? null
+    return sections.inWork.flatMap((group) => group.epics).find((epic) => epic.id === id && !epic.reason) ?? null
   }
 
   /** @param {number | null} epic */
@@ -458,14 +536,105 @@ export default class ConportMod extends View {
   }
 
   /**
+   * Folds or opens a section; the mod keeps it for the person.
    * @param {Context} cx
-   * @param {Tab} tab
+   * @param {SectionKey} key
    */
-  chooseTab(cx, tab) {
-    this.tab = tab
-    this.notice = null
-    store('conport.tab', tab)
+  toggleSection(cx, key) {
+    this.open = { ...this.open, [key]: !this.open[key] }
+    store('conport.sections', this.open)
     cx.notify()
+  }
+
+  /**
+   * Asks before a Take over: another session may be at the row.
+   * @param {Context} cx
+   * @param {string} title
+   * @param {(cx: Context) => void} go
+   */
+  askTakeOver(cx, title, go) {
+    this.takeOver = { title, go }
+    this.notice = null
+    this.refusal = null
+    cx.notify()
+  }
+
+  /**
+   * Brings the terminal of a row forward: its space, then its tab in that space.
+   * @param {Session} session
+   */
+  showTerminal(session) {
+    for (const [name, args] of showTerminalCommands(session)) run(name, args)
+  }
+
+  /**
+   * The first live agent among the tabs `names` a start of this host opened in the root.
+   * @param {(string | null)[]} names
+   * @returns {Session}
+   */
+  tabSession(names) {
+    for (const tab of names) {
+      if (tab === null) continue
+      const session = rowSession({ agents: agents(), spaces: spaces(), tab })
+      if (session.live) return session
+    }
+    return { live: false, space: null }
+  }
+
+  /**
+   * The terminal of an epic In work on this host: its lead session in its copy, else the tab that
+   * planned it, the tab of its spec or of its idea — an epic made from them inherits their terminal.
+   * @param {InWorkRow} epic
+   * @returns {Session}
+   */
+  epicTerminal(epic) {
+    const project = this.current()
+    if (project !== null) {
+      const lead = this.copySession(epicWorktreePath(home(), project.root, epic.id))
+      if (lead.live) return lead
+    }
+    return this.tabSession([`plan-${epic.id}`, epic.spec ? `doc-${epic.spec}` : null, epic.idea ? `idea-${epic.idea}` : null])
+  }
+
+  /**
+   * The terminal of a spec on this host: the tab of its document, or the tab that plans its epic.
+   * @param {SpecRow} spec
+   * @returns {Session}
+   */
+  specTerminal(spec) {
+    return this.tabSession([`doc-${spec.doc}`, spec.epic ? `plan-${spec.epic}` : null, spec.idea ? `idea-${spec.idea}` : null])
+  }
+
+  /**
+   * Open spec: the document in the dashboard, in the team of the project, which the CLI tells once.
+   * @param {Context} cx
+   * @param {number} doc
+   */
+  openSpec(cx, doc) {
+    const project = this.current()
+    const handle = this.handle()
+    if (project === null || handle === null) return
+    const mine = this.projectLoad
+    this.refusal = null
+    cx.spawn(async (cx) => {
+      if (this.canonical === null) {
+        const answer = await runCli(exec, projectGetArgs(handle), project.root)
+        if (mine !== this.projectLoad) return
+        if (answer.ok === false) {
+          this.refusal = answer.error
+          cx.notify()
+          return
+        }
+        this.canonical = typeof answer.data?.canonical_name === 'string' ? answer.data.canonical_name : null
+      }
+      const url = documentUrl({ canonical: this.canonical, handle, doc })
+      if (url === null) {
+        this.refusal = { code: 'bad_output', fact: 'the CLI answered no team of the project', action: '' }
+        cx.notify()
+        return
+      }
+      cx.open_url(url)
+    })
   }
 
   /**
@@ -558,6 +727,7 @@ export default class ConportMod extends View {
           this.place = { ok: true, data: { root: project.root, base: answer.data.base, worktree: answer.data.worktree, copy: 'existing' } }
         }
         this.hold(cx, key, epic.id, answer.data.worktree)
+        this.readAfterStart(cx)
       } catch (error) {
         this.refusal = thrownRefusal(error)
       } finally {
@@ -599,14 +769,18 @@ export default class ConportMod extends View {
     const project = this.current()
     if (project === null) return
     this.sheet = sheet
+    this.takeOver = null
     this.sheetAgent = sheetAgent(this.harnesses(), shared(agentKey(project.gitDir)))
+    if (sheet.kind === 'decline') this.reason.set_value('')
     this.notice = null
     this.refusal = null
     cx.notify()
   }
 
   /**
-   * Opens the agent of the sheet in a tab of the project root, with the task the CLI gave.
+   * The sheet's work: a decline sends the reason; any other opens the chosen agent in a tab of the
+   * project root with the task the CLI gave — a proposal is accepted first and its idea opened.
+   * Then the list is read in full.
    * @param {Context} cx
    */
   submitSheet(cx) {
@@ -614,35 +788,64 @@ export default class ConportMod extends View {
     const agent = this.sheetAgent
     const project = this.current()
     const handle = this.handle()
-    if (this.busy || open === null || agent === null || project === null || handle === null || !this.known?.ok) return
-    const id = open.epic?.id ?? open.task.id
+    if (this.busy || open === null || project === null || handle === null) return
+    const decline = open.kind === 'decline'
+    if (!decline && (agent === null || !this.known?.ok)) return
     this.busy = true
     this.refusal = null
     cx.spawn(async (cx) => {
+      let changed = false
       try {
-        const answer = await handToAgent(
-          { exec, run, setShared, spaces, panes },
-          {
-            kind: open.kind,
-            id,
-            agent,
-            project: handle,
-            root: project.root,
-            gitDir: project.gitDir,
-            // Read as the guard above found it: a sheet opens an agent only once Herdr named them.
-            knownAgents: /** @type {Ok<KnownAgent[]>} */ (this.known).data
+        if (open.kind === 'decline') {
+          const answer = await declineProposal({ exec }, { doc: open.proposal.doc, project: handle, root: project.root, reason: this.reason.value() })
+          if (answer.ok === false) this.refusal = answer.error
+          else {
+            changed = true
+            this.sheet = null
+            this.notice = handNotice({ kind: 'decline', id: open.proposal.doc, tab: null, project: project.name })
           }
-        )
+          return
+        }
+        const deps = { exec, run, setShared, spaces, panes }
+        // Read as the guard above found it: a sheet opens an agent only once Herdr named them.
+        const base = { agent, project: handle, root: project.root, gitDir: project.gitDir, knownAgents: /** @type {Ok<KnownAgent[]>} */ (this.known).data }
+        /** @type {number} */
+        let id
+        /** @type {Result<{name: string}>} */
+        let answer
+        if (open.kind === 'idea') {
+          id = open.idea.id
+          answer = await startIdea(deps, { ...base, task: id })
+        } else if (open.kind === 'proposal') {
+          const accepted = await acceptProposal({ exec }, { doc: open.proposal.doc, project: handle, root: project.root })
+          if (accepted.ok === false) {
+            this.refusal = accepted.error
+            return
+          }
+          // The proposal is an idea now, whatever the start answers.
+          changed = true
+          id = accepted.data.task
+          answer = await startIdea(deps, { ...base, task: id })
+        } else if (open.kind === 'spec') {
+          const { doc, epic } = open.spec
+          id = epic ?? doc
+          answer = await startSpec(deps, { ...base, target: epic === null || epic === undefined ? { doc } : { epic } })
+        } else {
+          id = open.task.id
+          answer = await handToAgent(deps, { ...base, kind: open.kind, id })
+        }
         if (answer.ok === false) this.refusal = answer.error
         else {
+          changed = true
           this.sheet = null
-          this.notice = handNotice({ kind: open.kind, id, project: project.name })
+          this.notice = handNotice({ kind: open.kind, id, tab: answer.data.name, project: project.name })
         }
       } catch (error) {
         this.refusal = thrownRefusal(error)
       } finally {
         this.busy = false
         cx.notify()
+        if (changed) this.readAfterStart(cx)
       }
     })
     cx.notify()
@@ -755,18 +958,21 @@ export default class ConportMod extends View {
     if (this.refusal) out.push(ui.refusal(this.refusal))
     if (this.notice) out.push(ui.notice(this.notice))
     if (this.known && this.known.ok === false) out.push(ui.refusal(this.known.error))
+    if (this.reader.listError) out.push(ui.refusal(this.reader.listError))
     if (this.reading || project === null) return out
     if (this.binding === null) return [...out, ui.dim('Loading the ConPort project…')]
     const shown = bindingParts(this.binding)
     if (shown.settings) out.push(this.settingsCard(ui))
     if (shown.bind) return [...out, this.bindCard(ui, shown.bindNote)]
     if (!shown.lists) return out
-    if (this.epics === null) return [...out, ui.dim('Loading epics and tasks…')]
-    if (this.epics.ok === false) return [...out, ui.refusal(this.epics.error)]
+    const list = this.reader.list
+    if (list === null) return [...out, ui.dim('Loading the SDD stages…')]
+    if (list.ok === false) return [...out, ui.refusal(list.error)]
+    if (this.takeOver !== null) return [...out, this.takeOverCard(ui)]
     if (this.sheet !== null) return [...out, this.sheetCard(ui)]
     const epic = this.openedEpic()
     if (epic !== null) return [...out, ...this.epicScreen(ui, epic, project)]
-    return [...out, ...this.sections(ui)]
+    return [...out, ...this.agentsNote(ui), ...this.sectionsView(ui)]
   }
 
   /**
@@ -792,52 +998,236 @@ export default class ConportMod extends View {
   }
 
   /**
-   * The tabs: drawn once `body` found the epics read.
+   * The four sections, each a header that folds or opens it, with its rows under it: drawn once
+   * `body` found the list read.
    * @param {Parts} ui
+   * @returns {Element[]}
    */
-  sections(ui) {
-    const tabs = epicTabs(/** @type {Ok<EpicList>} */ (this.epics).data)
-    const outside = this.tasks?.ok ? taskTabs(this.tasks.data) : null
-    const counts = { launch: tabs.counts.launch, prepare: tabs.counts.prepare, tasks: outside?.counts.total }
-    const bar = h_flex()
-      .gap(4)
-      .children(
-        TABS.map((tab) =>
-          ui.chip(`tab-${tab}`, counts[tab] === undefined ? TAB_TITLES[tab] : tabLabel(tab, counts[tab]), {
-            selected: this.tab === tab,
-            onClick: (_event, cx) => this.chooseTab(cx, tab)
-          })
-        )
-      )
-    const content =
-      this.tab === 'launch' ? this.launchTab(ui, tabs) : this.tab === 'prepare' ? this.prepareTab(ui, tabs) : this.tasksTab(ui, outside)
-    return [bar, ...content]
+  sectionsView(ui) {
+    const { t } = ui
+    const sections = /** @type {SddSections} */ (this.sections())
+    const taken = takenMap(this.reader.taken)
+    const now = new Date()
+    const epics = (/** @type {{epics: unknown[]}[]} */ groups) => groups.reduce((sum, group) => sum + group.epics.length, 0)
+    /** @type {Record<SectionKey, number>} */
+    const counts = {
+      in_work: epics(sections.inWork),
+      specs: sections.specs.length,
+      ideas: sections.ideas.length,
+      outside: epics(sections.outside)
+    }
+    /** @type {Record<SectionKey, () => Element[]>} */
+    const rows = {
+      in_work: () => this.inWorkRows(ui, sections, taken, now),
+      specs: () => this.specRows(ui, sections, taken, now),
+      ideas: () => this.ideaRows(ui, sections, taken, now),
+      outside: () => this.outsideRows(ui, sections, taken, now)
+    }
+    return SECTIONS.map(({ key, caption }) => {
+      const open = this.open[key]
+      const head = h_flex()
+        .id(`section-${key}`)
+        .gap(6)
+        .items_center()
+        .cursor_pointer()
+        .on_click((_event, cx) => this.toggleSection(cx, key))
+        .child(div().w(10).text_color(t.dim).child(open ? '▾' : '▸'))
+        .child(div().font_semibold().child(sectionLabel(key, counts[key])))
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(caption))
+      const body = counts[key] === 0 && key !== 'ideas' ? [ui.dim(EMPTY[key])] : rows[key]()
+      return v_flex()
+        .gap(4)
+        .child(head)
+        .when(open, (el) => el.children(body))
+    })
   }
 
   /**
+   * The buttons of a row, by the words `rowActions` gives: one that opens an agent is off while
+   * none is installed or an action runs.
    * @param {Parts} ui
-   * @param {EpicTabs} tabs
+   * @param {string} id
+   * @param {string[]} words
+   * @param {RowHandlers} handlers
+   * @returns {Element | null}
    */
-  launchTab(ui, tabs) {
+  actions(ui, id, words, handlers) {
+    if (words.length === 0) return null
+    return h_flex()
+      .gap(4)
+      .children(
+        words.map((word) =>
+          ui.button(`${id}-${word}`, word, {
+            disabled: this.busy || (AGENT_BUTTONS.has(word) && !this.canHand()),
+            onClick: (_event, cx) => handlers[word]?.(cx)
+          })
+        )
+      )
+  }
+
+  /**
+   * A milestone's title, and its release line for a release milestone.
+   * @param {Parts} ui
+   * @param {{milestone: InWorkRow['milestone'], release: boolean}} group
+   * @returns {Element[]}
+   */
+  milestoneHead(ui, group) {
+    const head = [ui.label(group.milestone?.title ?? NO_MILESTONE)]
+    if (group.release && group.milestone) head.push(ui.dim(releaseLine(group.milestone)))
+    return head
+  }
+
+  /**
+   * In work: the epics with a spec and a plan by milestone; a row opens the screen of its epic.
+   * @param {Parts} ui
+   * @param {SddSections} sections
+   * @param {Map<number, string> | null} taken
+   * @param {Date} now
+   * @returns {Element[]}
+   */
+  inWorkRows(ui, sections, taken, now) {
     const { t } = ui
-    if (tabs.counts.launch === 0 && tabs.counts.prepare === 0) {
-      return [ui.title('The project has no epics'), ui.dim('An epic can start once it has a spec and a plan in ConPort.')]
-    }
-    if (tabs.counts.launch === 0) return [ui.dim('No epic is ready to run — prepare one in the Prepare tab.')]
-    return tabs.launch.map((group) =>
+    return sections.inWork.map((group) =>
       v_flex()
-        .gap(4)
-        .child(ui.title(group.milestone?.title ?? NO_MILESTONE))
-        .when(group.release, (el) => el.child(ui.dim(releaseLine(group.milestone))))
+        .gap(2)
+        .children(this.milestoneHead(ui, group))
         .children(
-          group.epics.map((epic) =>
-            ui.row(`epic-${epic.id}`, {
+          group.epics.map((epic) => {
+            const isTaken = rowTaken(epic, taken)
+            const terminal = this.epicTerminal(epic)
+            /** @type {ActionRow} */
+            const row = { type: 'epic', section: 'in_work', status: epic.status, reason: epic.reason, ready: epic.ready, progress: epic.progress }
+            const open = (/** @type {Context} */ cx) => this.openEpic(cx, epic.id)
+            return ui.row(`epic-${epic.id}`, {
               title: `${epic.id} · ${epic.title}`,
-              line: epicState(epic),
+              line: rowLine(row, { taken: isTaken, updated: taken?.get(epic.id) ?? epic.updated_at, now }),
               lineColor: epic.ready ? t.done : undefined,
-              onClick: (_event, cx) => this.openEpic(cx, epic.id)
+              muted: Boolean(epic.reason),
+              onClick: epic.reason ? undefined : (_event, cx) => open(cx),
+              action: this.actions(ui, `epic-${epic.id}`, rowActions(row, isTaken, terminal.live), {
+                Start: open,
+                'Show terminal': () => this.showTerminal(terminal),
+                'Take over': (cx) => this.askTakeOver(cx, epic.title, open)
+              })
             })
-          )
+          })
+        )
+    )
+  }
+
+  /**
+   * Specs: the spec documents waiting for their plan and the epics with a spec and no plan.
+   * @param {Parts} ui
+   * @param {SddSections} sections
+   * @param {Map<number, string> | null} taken
+   * @param {Date} now
+   * @returns {Element[]}
+   */
+  specRows(ui, sections, taken, now) {
+    return sections.specs.map((spec) => {
+      const isTaken = rowTaken({ id: spec.epic, taken: spec.taken }, taken)
+      const terminal = this.specTerminal(spec)
+      /** @type {ActionRow} */
+      const row = { type: 'spec', epic: spec.epic, priority: spec.priority }
+      const plan = (/** @type {Context} */ cx) => this.openSheet(cx, { kind: 'spec', spec })
+      const id = spec.epic === null || spec.epic === undefined ? `doc-${spec.doc}` : `${spec.epic}`
+      return ui.row(`spec-${spec.doc}`, {
+        title: `${id} · ${spec.title}`,
+        line: rowLine(row, { taken: isTaken, updated: (spec.epic ? taken?.get(spec.epic) : null) ?? spec.updated_at, now }),
+        action: this.actions(ui, `spec-${spec.doc}`, rowActions(row, isTaken, terminal.live), {
+          'Plan & build': plan,
+          'Show terminal': () => this.showTerminal(terminal),
+          'Take over': (cx) => this.askTakeOver(cx, spec.title, plan),
+          'Open spec': (cx) => this.openSpec(cx, spec.doc)
+        })
+      })
+    })
+  }
+
+  /**
+   * Ideas: the ideas and the proposals by priority, and how many proposals could not be read.
+   * @param {Parts} ui
+   * @param {SddSections} sections
+   * @param {Map<number, string> | null} taken
+   * @param {Date} now
+   * @returns {Element[]}
+   */
+  ideaRows(ui, sections, taken, now) {
+    /** @type {Element[]} */
+    const out = sections.ideas.map((item) => {
+      if ('doc' in item) {
+        const proposal = /** @type {ProposalRow} */ (item)
+        return ui.row(`proposal-${proposal.doc}`, {
+          title: `doc-${proposal.doc} · ${proposal.title}`,
+          line: rowLine({ type: 'proposal', author: proposal.author }, { taken: false }),
+          action: this.actions(ui, `proposal-${proposal.doc}`, rowActions({ type: 'proposal' }, false, false), {
+            Brainstorm: (cx) => this.openSheet(cx, { kind: 'proposal', proposal }),
+            Decline: (cx) => this.openSheet(cx, { kind: 'decline', proposal })
+          })
+        })
+      }
+      const idea = /** @type {HandRow & {taken: boolean}} */ (item)
+      const isTaken = rowTaken(idea, taken)
+      const terminal = this.tabSession([`idea-${idea.id}`, `task-${idea.id}`])
+      /** @type {ActionRow} */
+      const row = { type: 'idea', status: idea.status, mode: idea.mode, kind: idea.kind, priority: idea.priority, changes_requested: idea.changes_requested }
+      const brainstorm = (/** @type {Context} */ cx) => this.openSheet(cx, { kind: 'idea', idea })
+      const hand = (/** @type {Context} */ cx) => idea.mode !== null && this.openSheet(cx, { kind: idea.mode, task: idea })
+      return ui.row(`idea-${idea.id}`, {
+        title: `${idea.id} · ${idea.title}`,
+        line: rowLine(row, { taken: isTaken, updated: taken?.get(idea.id) ?? idea.updated_at, now }),
+        action: this.actions(ui, `idea-${idea.id}`, rowActions(row, isTaken, terminal.live), {
+          Brainstorm: brainstorm,
+          Review: hand,
+          Fix: hand,
+          'Show terminal': () => this.showTerminal(terminal),
+          'Take over': (cx) => this.askTakeOver(cx, idea.title, brainstorm)
+        })
+      })
+    })
+    if (out.length === 0) out.push(ui.dim(EMPTY.ideas))
+    if (sections.skipped > 0) out.push(ui.dim(skippedLine(sections.skipped)))
+    return out
+  }
+
+  /**
+   * Outside SDD: the epics without a spec by milestone, each with its open tasks to hand to an agent.
+   * @param {Parts} ui
+   * @param {SddSections} sections
+   * @param {Map<number, string> | null} taken
+   * @param {Date} now
+   * @returns {Element[]}
+   */
+  outsideRows(ui, sections, taken, now) {
+    return sections.outside.map((group) =>
+      v_flex()
+        .gap(2)
+        .children(this.milestoneHead(ui, group))
+        .children(
+          group.epics.map((epic) => {
+            const isTaken = rowTaken(epic, taken)
+            /** @type {ActionRow} */
+            const row = { type: 'epic', section: 'outside', status: epic.status, progress: epic.progress }
+            const tasks = epic.tasks.map((task) => {
+              /** @type {ActionRow} */
+              const line = { type: 'task', status: task.status, mode: task.mode, kind: task.kind, priority: task.priority, changes_requested: task.changes_requested }
+              const hand = (/** @type {Context} */ cx) => task.mode !== null && this.openSheet(cx, { kind: task.mode, task })
+              return ui.row(`task-${task.id}`, {
+                title: `${task.id} · ${task.title}`,
+                line: rowLine(line, { taken: false }),
+                action: this.actions(ui, `task-${task.id}`, rowActions(line, false, false), { 'Hand to agent': hand, Review: hand, Fix: hand })
+              })
+            })
+            return v_flex()
+              .gap(2)
+              .child(
+                ui.row(`outside-${epic.id}`, {
+                  title: `${epic.id} · ${epic.title}`,
+                  line: rowLine(row, { taken: isTaken, updated: taken?.get(epic.id) ?? epic.updated_at, now })
+                })
+              )
+              .child(v_flex().pl(16).gap(2).children(tasks))
+          })
         )
     )
   }
@@ -855,85 +1245,70 @@ export default class ConportMod extends View {
   }
 
   /**
+   * Take over asks first: another session may be at the row.
    * @param {Parts} ui
-   * @param {EpicTabs} tabs
    */
-  prepareTab(ui, tabs) {
-    const rows = tabs.prepare.map((epic) => {
-      const title = `${epic.id} · ${epic.title}`
-      if (epic.missing === null) return ui.row(`prepare-${epic.id}`, { title, line: PREPARE_STATE.other, muted: true })
-      const label = epic.missing === 'spec' ? 'Prepare' : 'Write plan'
-      return ui.row(`prepare-${epic.id}`, {
-        title,
-        line: PREPARE_STATE[epic.missing],
-        action: ui.button(`prepare-go-${epic.id}`, label, {
-          disabled: !this.canHand(),
-          onClick: (_event, cx) => this.openSheet(cx, { kind: epic.missing, epic })
-        })
-      })
-    })
-    if (rows.length === 0) rows.push(ui.dim('Nothing to prepare: every epic has a spec and a plan.'))
-    return [ui.dim(PREPARE_HINT), ...this.agentsNote(ui), ...rows]
-  }
-
-  /**
-   * @param {Parts} ui
-   * @param {TaskTabs | null} outside
-   */
-  tasksTab(ui, outside) {
-    if (this.tasks === null) return [ui.dim('Loading tasks…')]
-    if (this.tasks.ok === false) return [ui.refusal(this.tasks.error)]
-    if (outside.counts.total === 0) return [ui.title('No tasks outside the epics'), ui.dim("The project's open tasks outside the epics appear here.")]
-    const groups = TASK_GROUPS.filter(([key]) => outside[key].length > 0).map(([key, title]) =>
-      v_flex()
-        .gap(4)
-        .child(ui.title(title))
-        .children(
-          outside[key].map((task) =>
-            ui.row(`task-${task.id}`, {
-              title: `${task.id} · ${task.title}`,
-              line: taskLine(task),
-              action:
-                task.mode === null
-                  ? null
-                  : ui.button(`hand-${task.id}`, HAND_BUTTONS[task.mode], {
-                      disabled: !this.canHand(),
-                      onClick: (_event, cx) => this.openSheet(cx, { kind: task.mode, task })
-                    })
-            })
-          )
+  takeOverCard(ui) {
+    const { title, go } = /** @type {TakeOver} */ (this.takeOver)
+    return ui.card([
+      ui.title(`Take over “${title}”?`),
+      ui.text(TAKE_OVER_CONFIRM),
+      h_flex()
+        .gap(6)
+        .justify_end()
+        .child(
+          ui.button('take-over-no', 'Cancel', {
+            quiet: true,
+            onClick: (_event, cx) => {
+              this.takeOver = null
+              cx.notify()
+            }
+          })
         )
-    )
-    return [...this.agentsNote(ui), ...groups]
+        .child(
+          ui.button('take-over-yes', 'Take over', {
+            primary: true,
+            onClick: (_event, cx) => {
+              this.takeOver = null
+              go(cx)
+              cx.notify()
+            }
+          })
+        )
+    ])
   }
 
   /** @param {Parts} ui */
   sheetCard(ui) {
     const open = this.sheet
     const text = sheetText(open)
+    const decline = open.kind === 'decline'
     const installed = this.harnesses().filter((choice) => choice.installed)
     const last = shared(agentKey(this.current()?.gitDir ?? ''))
+    const who = decline
+      ? ui.input(this.reason)
+      : installed.length === 0
+      ? ui.dim(NO_AGENT)
+      : h_flex()
+          .gap(4)
+          .flex_wrap()
+          .children(
+            installed.map((choice) =>
+              ui.chip(`agent-${choice.kind}`, choice.kind === last ? `${choice.label} · last time` : choice.label, {
+                selected: this.sheetAgent === choice.kind,
+                onClick: (_event, cx) => {
+                  this.sheetAgent = choice.kind
+                  cx.notify()
+                }
+              })
+            )
+          )
     return ui.card([
       ui.title(text.title),
       ui.dim(text.description),
-      ui.steps(SHEET_STEPS[open.kind]),
+      ...(decline ? [] : [ui.steps(SHEET_STEPS[/** @type {Exclude<Sheet['kind'], 'decline'>} */ (open.kind)])]),
       ui.label(text.who),
-      installed.length === 0
-        ? ui.dim(NO_AGENT)
-        : h_flex()
-            .gap(4)
-            .flex_wrap()
-            .children(
-              installed.map((choice) =>
-                ui.chip(`agent-${choice.kind}`, choice.kind === last ? `${choice.label} · last time` : choice.label, {
-                  selected: this.sheetAgent === choice.kind,
-                  onClick: (_event, cx) => {
-                    this.sheetAgent = choice.kind
-                    cx.notify()
-                  }
-                })
-              )
-            ),
+      who,
       h_flex()
         .gap(6)
         .justify_end()
@@ -949,7 +1324,7 @@ export default class ConportMod extends View {
         .child(
           ui.button('sheet-go', text.button, {
             primary: true,
-            disabled: this.busy || this.sheetAgent === null,
+            disabled: this.busy || (!decline && this.sheetAgent === null),
             onClick: (_event, cx) => this.submitSheet(cx)
           })
         )
@@ -958,7 +1333,7 @@ export default class ConportMod extends View {
 
   /**
    * @param {Parts} ui
-   * @param {Epic} epic
+   * @param {InWorkRow} epic
    * @param {Project} project
    */
   epicScreen(ui, epic, project) {
@@ -970,7 +1345,7 @@ export default class ConportMod extends View {
         h_flex()
           .justify_between()
           .items_center()
-          .child(ui.button('back', '← Epics', { quiet: true, onClick: (_event, cx) => this.closeEpic(cx) }))
+          .child(ui.button('back', '← Sections', { quiet: true, onClick: (_event, cx) => this.closeEpic(cx) }))
           .child(div().truncate().text_size(11).text_color(t.dim).child(project.name))
       )
       .child(div().text_size(11).text_color(t.dim).child(kicker))
@@ -1054,7 +1429,7 @@ export default class ConportMod extends View {
 
   /**
    * @param {Parts} ui
-   * @param {Epic} epic
+   * @param {InWorkRow} epic
    * @param {Choice} choice
    */
   startPart(ui, epic, choice) {

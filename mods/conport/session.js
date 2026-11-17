@@ -1,13 +1,14 @@
-// Whether the lead session of an epic is alive, read from Herdr's live data. Herdr redraws the
-// mod when that data changes: nothing here polls.
+// Whether the lead session of an epic, or the agent of a row, is alive, read from Herdr's live
+// data. Herdr redraws the mod when that data changes: nothing here polls.
 import { trimSlash } from './git.js'
 import { HARNESSES } from './harness.js'
 
 /** @import { AgentInfo, PaneInfo, SpaceInfo } from 'herdr' */
 
 /**
- * Whether the lead session of an epic is alive, and the space of its pane.
- * @typedef {{live: boolean, space: string | null}} Session
+ * Whether the lead session of an epic, or the agent of a row, is alive, the space of its pane and,
+ * for the tab of a row, the id of that tab.
+ * @typedef {{live: boolean, space: string | null, tab?: string}} Session
  */
 
 /**
@@ -77,6 +78,38 @@ export function epicSession({ agents, panes, spaces, worktree }) {
     if (space !== null) return { live: true, space }
   }
   return { live: false, space: null }
+}
+
+/**
+ * The session of a row a start opened in the root of the project: an agent of `agents()` in a
+ * tab named `tab` (`idea-<id>`, `doc-<N>`, `plan-<epic>`) of a space of this machine, and the
+ * space and the id of that tab. A tab whose agent is gone is no session.
+ * @param {{agents: AgentInfo[] | null | undefined, spaces: SpaceInfo[] | null | undefined, tab: string}} live
+ * @returns {Session}
+ */
+export function rowSession({ agents, spaces, tab }) {
+  for (const space of localSpaces(spaces)) {
+    for (const named of space.tabs ?? []) {
+      if (named.name !== tab) continue
+      if ((agents ?? []).some((agent) => agent.tab === named.id)) return { live: true, space: space.id, tab: named.id }
+    }
+  }
+  return { live: false, space: null }
+}
+
+/**
+ * The commands of Show terminal: `space.select` of the session's space, then `tab.select` of its
+ * tab when it is known — the tabs of the rows share the space of the root, and selecting the space
+ * alone shows whichever was active last. Nothing for no session.
+ * @param {Session} session
+ * @returns {[string, Record<string, unknown>][]}
+ */
+export function showTerminalCommands(session) {
+  if (!session.live || session.space === null) return []
+  /** @type {[string, Record<string, unknown>][]} */
+  const commands = [['space.select', { id: session.space }]]
+  if (session.tab) commands.push(['tab.select', { id: session.tab }])
+  return commands
 }
 
 /**

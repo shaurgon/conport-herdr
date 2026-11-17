@@ -1,11 +1,15 @@
 # ConPort mod for Herdr
 
-A panel for the [Herdr](https://herdr.dev) app that runs the epics and the tasks
-of a [ConPort](https://conport.app) project: it lists the epics ready to start,
-the epics to prepare and the tasks outside the epics, starts an epic's lead
-session — Claude Code, Codex or Cursor — in a working copy `epic-<N>`, and hands
-a preparation or a task to an agent in a tab of the project. What the mod reads
-of ConPort it reads through the [conport CLI](https://www.npmjs.com/package/conport).
+A panel for the [Herdr](https://herdr.dev) app that shows the work of a
+[ConPort](https://conport.app) project by SDD stage: four sections list the
+epics In work, the specs waiting for their plan, the ideas and the team's
+proposals not worked through, and the epics outside SDD. It brainstorms an idea
+or a proposal and plans and builds a spec with an agent in a tab of the project,
+starts an epic's lead session — Claude Code, Codex or Cursor — in a working copy
+`epic-<N>`, and hands a task of an epic outside SDD to an agent. While it is
+open, it reads every minute which rows another session took and shows them
+`In progress`. What the mod reads of ConPort it reads through the
+[conport CLI](https://www.npmjs.com/package/conport).
 
 `RECIPE.md` describes what the panel shows and does, for a person and for an
 agent that builds or installs it.

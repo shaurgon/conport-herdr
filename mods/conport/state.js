@@ -24,7 +24,7 @@ export const epicKey = (/** @type {string} */ gitDir, /** @type {number} */ epic
 /** The harness of the last start in the project: the one a new epic starts with. */
 export const harnessKey = (/** @type {string} */ gitDir) => sharedKey(gitDir, 'harness')
 
-/** The agent last chosen to prepare an epic or to take a task. */
+/** The agent last chosen to brainstorm an idea, plan and build a spec, or take a task. */
 export const agentKey = (/** @type {string} */ gitDir) => sharedKey(gitDir, 'agent')
 
 /** The ConPort project the person bound the repository to. */

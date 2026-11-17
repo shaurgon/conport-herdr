@@ -2,19 +2,22 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   CLI_TIMEOUT_MS,
-  epicListArgs,
-  epicTabs,
-  HAND_BUTTONS,
+  needsFullRead,
+  projectGetArgs,
   readEpicTasks,
   runCli,
+  sddListArgs,
+  sddSections,
+  sddTakenArgs,
   sortEpicTasks,
   subagentsArgs,
   taskCounts,
-  taskCountsLine,
-  taskListArgs,
-  taskTabs
+  taskCountsLine
 } from '../mods/conport/cli.js'
 import { CLI_VERSION } from '../mods/conport/version.js'
+
+/** A document as the CLI names it: `doc-<N>`, the number never written out. */
+const docRef = (n) => `doc-${n}`
 
 /** A stand-in for Herdr's exec: records each call and answers from `answer`. */
 function fakeExec(answer) {
@@ -81,94 +84,15 @@ test('runCli: exec rejecting for the limit is cli_timeout, for anything else npx
   assert.equal(refused.error.fact, 'No such file or directory (os error 2)')
 })
 
-test('the list commands name the project and ask for JSON', () => {
-  assert.deepEqual(epicListArgs('acme'), ['epic', 'list', '-p', 'acme', '--json'])
-  assert.deepEqual(taskListArgs('acme'), ['task', 'list', '-p', 'acme', '--json'])
-})
-
 test('subagentsArgs asks for the subagent types of one harness as JSON', () => {
   assert.deepEqual(subagentsArgs('codex'), ['epic', 'subagents', '--harness', 'codex', '--json'])
 })
 
+test('projectGetArgs reads the project, whose address names its team', () => {
+  assert.deepEqual(projectGetArgs('prk7m2qx9d'), ['api', 'projects', 'get', '--project', 'prk7m2qx9d'])
+})
+
 const milestone = (id, sequence, extra = {}) => ({ id, title: `M${id}`, sequence, is_release: false, ready_to_close: false, open_epics: 1, ...extra })
-const epic = (id, extra = {}) => ({
-  id,
-  title: `Epic ${id}`,
-  status: 'TODO',
-  progress: { open: 2, total: 3 },
-  milestone: null,
-  runnable: true,
-  reason: null,
-  ready: false,
-  ...extra
-})
-
-test('epicTabs: runnable epics by milestone in roadmap order, the others to prepare with what they lack', () => {
-  const list = {
-    project: 'prk7m2qx9d',
-    epics: [
-      epic(1, { milestone: milestone(20, 2) }),
-      epic(2, { runnable: false, reason: 'no spec' }),
-      epic(3, { milestone: milestone(10, 1, { is_release: true, ready_to_close: true }), ready: true }),
-      epic(4),
-      epic(5, { runnable: false, reason: 'no plan', milestone: milestone(10, 1) }),
-      epic(6, { runnable: false, reason: 'an open dependency' }),
-      epic(7, { milestone: milestone(20, 2) })
-    ]
-  }
-  const tabs = epicTabs(list)
-  assert.equal(tabs.project, 'prk7m2qx9d')
-  assert.deepEqual(tabs.counts, { launch: 4, prepare: 3 })
-  assert.deepEqual(
-    tabs.launch.map((group) => ({ milestone: group.milestone?.id ?? null, epics: group.epics.map((e) => e.id) })),
-    [
-      { milestone: 10, epics: [3] },
-      { milestone: 20, epics: [1, 7] },
-      { milestone: null, epics: [4] }
-    ]
-  )
-  assert.equal(tabs.launch[0].release, true)
-  assert.equal(tabs.launch[0].readyToClose, true)
-  assert.equal(tabs.launch[0].epics[0].ready, true)
-  assert.equal(tabs.launch[1].release, false)
-  assert.deepEqual(
-    tabs.prepare.map((e) => [e.id, e.missing]),
-    [
-      [2, 'spec'],
-      [5, 'plan'],
-      [6, null]
-    ]
-  )
-})
-
-test('taskTabs: review, in progress and to do by priority, with the bug mark and the button of each', () => {
-  const list = {
-    project: 'prk7m2qx9d',
-    tasks: [
-      { id: 11, kind: 'task', title: 'a', status: 'TODO', priority: 3, changes_requested: false },
-      { id: 12, kind: 'bug', title: 'b', status: 'REVIEW', priority: 2, changes_requested: false },
-      { id: 13, kind: 'task', title: 'c', status: 'IN_PROGRESS', priority: 3, changes_requested: true },
-      { id: 14, kind: 'bug', title: 'd', status: 'TODO', priority: 1, changes_requested: false },
-      { id: 15, kind: 'task', title: 'e', status: 'IN_PROGRESS', priority: 1, changes_requested: false },
-      { id: 16, kind: 'task', title: 'f', status: 'TODO', priority: 3, changes_requested: false }
-    ]
-  }
-  const tabs = taskTabs(list)
-  assert.equal(tabs.project, 'prk7m2qx9d')
-  assert.deepEqual(tabs.counts, { review: 1, inProgress: 2, todo: 3, total: 6 })
-  const rows = (group) => group.map((t) => [t.id, t.bug, t.mode, t.mode === null ? null : HAND_BUTTONS[t.mode]])
-  assert.deepEqual(rows(tabs.review), [[12, true, 'review', 'Review']])
-  assert.deepEqual(rows(tabs.inProgress), [
-    [13, false, 'fix', 'Fix'],
-    [15, false, null, null]
-  ])
-  // By priority; tasks of one priority keep the order the server gave.
-  assert.deepEqual(rows(tabs.todo), [
-    [14, true, 'do', 'Hand to agent'],
-    [11, false, 'do', 'Hand to agent'],
-    [16, false, 'do', 'Hand to agent']
-  ])
-})
 
 const statuses = (list) => list.map((status, i) => ({ id: i + 1, title: `t${i + 1}`, status }))
 
@@ -238,4 +162,212 @@ test('readEpicTasks stops on an empty page and passes a refusal on', async () =>
   assert.equal(empty.calls.length, 1)
   const refused = fakeExec(() => ({ code: 1, stdout: '', stderr: 'conport_unreachable: no answer — check the network\n' }))
   assert.equal((await readEpicTasks(refused.exec, { epic: 1, project: 'p', root: '/r' })).error.code, 'conport_unreachable')
+})
+
+test('sddListArgs and sddTakenArgs read the stages and the taken rows of the project as JSON', () => {
+  assert.deepEqual(sddListArgs('prk7m2qx9d'), ['sdd', 'list', '-p', 'prk7m2qx9d', '--json'])
+  assert.deepEqual(sddTakenArgs('prk7m2qx9d'), ['sdd', 'list', '--taken', '-p', 'prk7m2qx9d', '--json'])
+})
+
+const idea = (id, priority, extra = {}) => ({ id, kind: 'task', title: `idea ${id}`, status: 'TODO', priority, changes_requested: false, ...extra })
+const proposal = (doc) => ({ doc, title: `proposal ${doc}`, author: 'Anna' })
+const inWork = (id, m, extra = {}) => ({
+  id,
+  title: `epic ${id}`,
+  status: 'TODO',
+  progress: { open: 1, total: 2 },
+  milestone: m,
+  ready: false,
+  reason: null,
+  spec: null,
+  idea: null,
+  ...extra
+})
+const outsideEpic = (id, m, tasks = [], extra = {}) => ({
+  id,
+  title: `epic ${id}`,
+  status: 'TODO',
+  milestone: m,
+  progress: { open: tasks.length, total: tasks.length },
+  tasks,
+  ...extra
+})
+
+/** A list of `conport sdd list --json`, in the order the CLI gives it. */
+const SDD = () => ({
+  project: 'prk7m2qx9d',
+  in_work: [
+    inWork(1803, milestone(48, 1, { is_release: true, ready_to_close: true }), { ready: true }),
+    inWork(1810, milestone(48, 1)),
+    inWork(1820, milestone(50, 2), { status: 'IN_PROGRESS', updated_at: '2026-11-17T09:00:00Z', spec: 245, idea: 2233 }),
+    inWork(1830, null)
+  ],
+  specs: [
+    { doc: 245, title: 'spec 245', idea: 2233, priority: 2, epic: null, status: null },
+    { doc: 190, title: 'spec 190', idea: null, priority: 3, epic: 1597, status: 'TODO' }
+  ],
+  ideas: [idea(2116, 1), idea(2117, 3, { status: 'IN_PROGRESS', updated_at: '2026-11-17T08:00:00Z' }), idea(2118, 3, { kind: 'bug' }), idea(2119, 4)],
+  proposals: [proposal(301), proposal(305)],
+  skipped_proposals: [{ doc: 302, reason: 'no state line' }],
+  outside: [
+    outsideEpic(1916, milestone(26, 3), [idea(1917, 2), idea(1918, 3, { status: 'IN_PROGRESS', updated_at: '2026-11-17T07:00:00Z' })]),
+    outsideEpic(1688, null)
+  ]
+})
+
+const rowName = (row) => ('doc' in row ? `doc-${row.doc}` : `task-${row.id}`)
+
+test('sddSections groups In work and Outside SDD by milestone and merges proposals into Ideas after priority 3', () => {
+  const sections = sddSections(SDD())
+  assert.equal(sections.project, 'prk7m2qx9d')
+  assert.deepEqual(
+    sections.inWork.map((group) => [group.milestone?.id ?? null, group.release, group.readyToClose, group.epics.map((epic) => epic.id)]),
+    [
+      [48, true, true, [1803, 1810]],
+      [50, false, false, [1820]],
+      [null, false, false, [1830]]
+    ]
+  )
+  assert.equal(sections.inWork[0].epics[0].ready, true)
+  assert.equal(sections.inWork[0].epics[1].ready, false)
+  assert.deepEqual([sections.inWork[1].epics[0].spec, sections.inWork[1].epics[0].idea], [245, 2233])
+  assert.deepEqual(
+    sections.specs.map((spec) => [spec.doc, spec.epic]),
+    [
+      [245, null],
+      [190, 1597]
+    ]
+  )
+  // A proposal counts as priority 3: after the tasks of priority 3, before those of 4, by its number.
+  assert.deepEqual(sections.ideas.map(rowName), ['task-2116', 'task-2117', 'task-2118', docRef(301), docRef(305), 'task-2119'])
+  assert.equal(sections.skipped, 1)
+  assert.deepEqual(
+    sections.outside.map((group) => [group.milestone?.id ?? null, group.epics.map((epic) => [epic.id, epic.tasks.map((task) => task.id)])]),
+    [
+      [26, [[1916, [1917, 1918]]]],
+      [null, [[1688, []]]]
+    ]
+  )
+})
+
+test('sddSections: proposals go after the ideas of priority 3 and above, or first when every idea is lower', () => {
+  const high = sddSections({ ...SDD(), ideas: [idea(5, 1), idea(6, 4)], proposals: [proposal(9)] })
+  assert.deepEqual(high.ideas.map(rowName), ['task-5', docRef(9), 'task-6'])
+  const low = sddSections({ ...SDD(), ideas: [idea(6, 4)], proposals: [proposal(9)] })
+  assert.deepEqual(low.ideas.map(rowName), [docRef(9), 'task-6'])
+  const none = sddSections({ ...SDD(), ideas: [], proposals: [proposal(9)] })
+  assert.deepEqual(none.ideas.map(rowName), [docRef(9)])
+})
+
+test('sddSections of no list is four empty sections', () => {
+  const empty = { project: null, inWork: [], specs: [], ideas: [], skipped: 0, outside: [] }
+  assert.deepEqual(sddSections(null), empty)
+  assert.deepEqual(sddSections({ project: 'p' }), { ...empty, project: 'p' })
+})
+
+test('an idea back from review shows Fix, not In progress', () => {
+  const list = SDD()
+  list.ideas = [
+    idea(40, 3, { status: 'IN_PROGRESS', updated_at: '2026-11-17T08:00:00Z', changes_requested: true }),
+    idea(41, 3, { status: 'IN_PROGRESS', updated_at: '2026-11-17T08:00:00Z' }),
+    idea(42, 3, { status: 'REVIEW' }),
+    idea(43, 3),
+    idea(44, 3, { status: 'BLOCKED' })
+  ]
+  list.proposals = []
+  assert.deepEqual(
+    sddSections(list).ideas.map((row) => [row.id, row.mode, row.taken]),
+    [
+      [40, 'fix', false],
+      [41, null, true],
+      [42, 'review', false],
+      [43, 'do', false],
+      [44, null, false]
+    ]
+  )
+  // A task of an epic outside SDD back from review is handed to fix as well.
+  list.outside = [outsideEpic(1916, null, [idea(1917, 2, { status: 'IN_PROGRESS', changes_requested: true })])]
+  assert.deepEqual(sddSections(list).outside[0].epics[0].tasks.map((task) => task.mode), ['fix'])
+})
+
+test('sddSections: an epic and an epic of a spec in progress are taken, a spec document never', () => {
+  const sections = sddSections(SDD())
+  assert.deepEqual(sections.inWork.flatMap((group) => group.epics.map((epic) => [epic.id, epic.taken])), [
+    [1803, false],
+    [1810, false],
+    [1820, true],
+    [1830, false]
+  ])
+  const list = SDD()
+  list.specs[1].status = 'IN_PROGRESS'
+  list.outside[0].status = 'IN_PROGRESS'
+  const later = sddSections(list)
+  assert.deepEqual(later.specs.map((spec) => spec.taken), [false, true])
+  assert.deepEqual(later.outside.map((group) => group.epics[0].taken), [true, false])
+})
+
+const taken = (...ids) => ({ project: 'prk7m2qx9d', taken: ids.map((id) => ({ id, kind: 'task', updated_at: '2026-11-17T09:00:00Z' })) })
+
+test('needsFullRead: the same set of taken rows needs no full read', () => {
+  // The rows in progress of the list: epic 1820 and idea 2117 (task 1918 is a task of an epic).
+  assert.equal(needsFullRead(SDD(), taken(1820, 2117)), false)
+  assert.equal(needsFullRead(SDD(), taken(2117, 1820)), false)
+})
+
+test('needsFullRead: an unknown taken number, a vanished one', () => {
+  // A number the list does not hold at all: a new idea taken at once. Every row in progress of
+  // the list is still listed, so only the unknown number asks.
+  assert.equal(needsFullRead(SDD(), taken(1820, 2117, 9999)), true)
+  // A row the list holds in progress that the light read no longer lists; no unknown number.
+  assert.equal(needsFullRead(SDD(), taken(1820)), true)
+  assert.equal(needsFullRead(SDD(), taken()), true)
+})
+
+test('needsFullRead: the same number of taken rows with another content asks for a full read', () => {
+  // Idea 2117 let go, idea 2116 (a row of the list) taken in the same minute.
+  assert.equal(needsFullRead(SDD(), taken(1820, 2116)), true)
+  // Idea 2117 let go, a number the list does not hold taken.
+  assert.equal(needsFullRead(SDD(), taken(1820, 9999)), true)
+})
+
+test('needsFullRead: a row of the list taken from another client needs no full read', () => {
+  // The light read marks it taken by itself: the list holds idea 2116, in TODO.
+  assert.equal(needsFullRead(SDD(), taken(1820, 2117, 2116)), false)
+})
+
+test('needsFullRead ignores nothing the list cannot hold', () => {
+  // Every root row of the list is known, whatever its section: an epic In work, the epic of a
+  // spec, an idea, an epic outside SDD — taken in the light read, none of them is unknown.
+  for (const id of [1803, 1597, 2116, 1916]) assert.equal(needsFullRead(SDD(), taken(1820, 2117, id)), false, String(id))
+  // A spec document's number is no row the light read can hold: taken, it is unknown.
+  assert.equal(needsFullRead(SDD(), taken(1820, 2117, 245)), true)
+  // In progress in the list and missing from the light read, each of them asks for a full read.
+  const list = SDD()
+  list.specs[1].status = 'IN_PROGRESS'
+  list.outside[0].status = 'IN_PROGRESS'
+  assert.equal(needsFullRead(list, taken(1820, 2117, 1597, 1916)), false)
+  assert.equal(needsFullRead(list, taken(1820, 2117, 1916)), true)
+  assert.equal(needsFullRead(list, taken(1820, 2117, 1597)), true)
+  // An idea back from review is in progress too, and the light read lists it: no full read.
+  list.ideas[1].changes_requested = true
+  assert.equal(needsFullRead(list, taken(1820, 2117, 1597, 1916)), false)
+  // A task of an epic is no row the light read can hold (it reads the root tasks only): task 1918
+  // in progress and absent from it asks for nothing, and a number known only as such a task is unknown.
+  assert.equal(needsFullRead(SDD(), taken(1820, 2117)), false)
+  assert.equal(needsFullRead(SDD(), taken(1820, 2117, 1918)), true)
+})
+
+test('needsFullRead: a taken unlisted idea asks for no full read', () => {
+  // Idea 2240 is in progress and a tagged spec clarifies it: the list read it and shows it nowhere.
+  const list = { ...SDD(), unlisted: [2240] }
+  assert.equal(needsFullRead(list, taken(1820, 2117, 2240)), false)
+  // Let go, it asks for nothing either: it is no row the list holds in progress.
+  assert.equal(needsFullRead(list, taken(1820, 2117)), false)
+  // Without the field (an older CLI) the number is unknown.
+  assert.equal(needsFullRead(SDD(), taken(1820, 2117, 2240)), true)
+})
+
+test('needsFullRead with no list or no light read asks for the full read', () => {
+  assert.equal(needsFullRead(null, taken()), true)
+  assert.equal(needsFullRead(SDD(), null), true)
 })

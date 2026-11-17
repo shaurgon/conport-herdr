@@ -1,24 +1,19 @@
-// The start of an epic, and the arguments of the CLI's tasks and of Herdr's commands that open
-// an agent. The task reaches the agent as the last element of `argv`, the argument it is started
-// with: Herdr's `task` field is never used, since its first message is dropped when the agent is
-// not ready in time (a folder trust question) and `run` does not say so.
+// The start of an epic, of an idea and of a spec, the answers to a proposal, and the arguments of
+// the CLI's tasks and of Herdr's commands that open an agent. The task reaches the agent as the
+// last element of `argv`, the argument it is started with: Herdr's `task` field is never used,
+// since its first message is dropped when the agent is not ready in time (a folder trust
+// question) and `run` does not say so.
 import { isTimeout, rejectionText, runCli } from './cli.js'
-import { epicPlace, epicRefsArgs, parseWorktrees, worktreeAddArgs, WORKTREE_ADD_TIMEOUT_MS, worktreeListArgs } from './git.js'
+import { epicPlace, epicRefsArgs, mainCheckout, parseWorktrees, worktreeAddArgs, WORKTREE_ADD_TIMEOUT_MS, worktreeListArgs } from './git.js'
 import { DEFAULT_ROLES, harnessRun } from './harness.js'
 import { epicSession, launchSpace, rootSpace } from './session.js'
 import { agentKey, rememberStart } from './state.js'
 
 /** @import { AgentInfo, PaneInfo, SpaceInfo } from 'herdr' */
 /** @import { Exec, HandMode } from './cli.js' */
-/** @import { Place } from './git.js' */
+/** @import { Place, Worktree } from './git.js' */
 /** @import { KnownAgent, Roles } from './harness.js' */
 /** @import { Result } from './refusals.js' */
-
-/**
- * What a sheet hands to an agent: the preparation of an epic (`spec`, `plan`) or a task outside
- * the epics (a hand mode).
- * @typedef {'spec' | 'plan' | HandMode} SheetKind
- */
 
 /**
  * Herdr's `run`: a command by its name, with its arguments.
@@ -46,21 +41,56 @@ export function epicPromptArgs({ epic, project, harness, worktree, base, roles =
 }
 
 /**
- * The arguments of the task of an agent that prepares an epic with the person.
- * @param {{epic: number, project: string}} task
- * @returns {string[]}
- */
-export function preparePromptArgs({ epic, project }) {
-  return ['prompt', 'prepare', String(epic), '-p', project, '--host', 'herdr', '--json']
-}
-
-/**
- * The arguments of the task of an agent that does, reviews or fixes a task outside the epics.
+ * The arguments of the task of an agent that does, reviews or fixes an idea or a task of an epic
+ * outside SDD.
  * @param {{task: number, project: string, mode: string, agent: string, root: string}} task
  * @returns {string[]}
  */
 export function taskPromptArgs({ task, project, mode, agent, root }) {
   return ['prompt', 'task', String(task), '-p', project, '--host', 'herdr', '--mode', mode, '--agent', agent, '--root', root, '--json']
+}
+
+/**
+ * What Plan & build plans: a spec document waiting for its plan, or an epic with a spec and no plan.
+ * @typedef {{doc: number} | {epic: number}} SpecTarget
+ */
+
+/**
+ * The arguments of the task of an agent that brainstorms idea `task` with the person.
+ * @param {{task: number, project: string, agent: string, root: string}} task
+ * @returns {string[]}
+ */
+export function ideaPromptArgs({ task, project, agent, root }) {
+  return ['prompt', 'idea', String(task), '-p', project, '--host', 'herdr', '--agent', agent, '--root', root, '--json']
+}
+
+/**
+ * The arguments of the task of an agent that plans a spec and builds it: `doc-<N>` for a spec
+ * document, `task-<N>` for an epic; `base` the branch of the main checkout.
+ * @param {{target: SpecTarget, project: string, agent: string, root: string, base: string}} task
+ * @returns {string[]}
+ */
+export function specPromptArgs({ target, project, agent, root, base }) {
+  const subject = 'doc' in target ? `doc-${target.doc}` : `task-${target.epic}`
+  return ['prompt', 'spec', subject, '-p', project, '--host', 'herdr', '--agent', agent, '--root', root, '--base', base, '--json']
+}
+
+/**
+ * The arguments that accept proposal `doc`: the CLI answers the idea it became.
+ * @param {{doc: number, project: string}} proposal
+ * @returns {string[]}
+ */
+export function proposalAcceptArgs({ doc, project }) {
+  return ['proposal', 'accept', `doc-${doc}`, '-p', project, '--json']
+}
+
+/**
+ * The arguments that decline proposal `doc` for `reason`.
+ * @param {{doc: number, project: string, reason: string}} proposal
+ * @returns {string[]}
+ */
+export function proposalDeclineArgs({ doc, project, reason }) {
+  return ['proposal', 'decline', `doc-${doc}`, '-p', project, '--reason', reason, '--json']
 }
 
 /**
@@ -190,47 +220,132 @@ export async function startEpic(deps, input) {
 }
 
 /**
- * The sheets that prepare an epic: their task is the same, by what the epic lacks.
- * @type {SheetKind[]}
- */
-const PREPARE_KINDS = ['spec', 'plan']
-
-/**
- * Opens an agent on the preparation of an epic (`kind` `spec` or `plan`, `id` the epic) or on a
- * task outside the epics (`kind` `do`, `review` or `fix`, `id` the task). The agent, the copies
- * of the repository (`git worktree list`) and the task from the CLI come first: a refusal opens
- * nothing. Then a tab `prepare-<N>` / `task-<id>` in the root of the project, in the space of the
- * project — a pane in the main checkout, not in a copy nested in it — or a new space when there is
- * none; the agent is remembered for the project.
+ * Opens an agent on an idea or a task of an epic outside SDD (`kind` `do`, `review` or `fix`, `id`
+ * the task): the task `prompt task` in a tab `task-<id>` in the root of the project, as
+ * `openInRoot` does.
  *
  * `deps`: Herdr's `exec`, `run`, `setShared`, and `spaces` and `panes` as functions.
  * `input`: `{kind, id, agent, project, root, gitDir, knownAgents}`.
- * @param {{exec: Exec, run: Run, setShared: SetShared, spaces: () => SpaceInfo[], panes: () => PaneInfo[]}} deps
- * @param {{kind: SheetKind, id: number, agent: string, project: string, root: string, gitDir: string, knownAgents: KnownAgent[]}} input
- * @returns {Promise<Result<{name: string, command: 'space.new' | 'tab.new', space: string | null}>>}
+ * @param {RootDeps} deps
+ * @param {RootStart & {kind: HandMode, id: number}} input
+ * @returns {Promise<Result<Opened>>}
  */
 export async function handToAgent(deps, input) {
+  const { kind, id, agent, project, root } = input
+  const args = taskPromptArgs({ task: id, project, mode: kind, agent, root })
+  return openInRoot(deps, { ...input, name: `task-${id}`, args: () => ({ ok: true, data: args }) })
+}
+
+/**
+ * What a start in the root needs, besides Herdr's functions.
+ * @typedef {{agent: string, project: string, root: string, gitDir: string, knownAgents: KnownAgent[]}} RootStart
+ */
+
+/**
+ * What a start in the root opened: the tab, and whether in a new space or in the space of the project.
+ * @typedef {{name: string, command: 'space.new' | 'tab.new', space: string | null}} Opened
+ */
+
+/**
+ * Herdr's functions a start in the root uses.
+ * @typedef {{exec: Exec, run: Run, setShared: SetShared, spaces: () => SpaceInfo[], panes: () => PaneInfo[]}} RootDeps
+ */
+
+/**
+ * Opens `agent` in tab `name` in the root of the project with the task the CLI answers to
+ * `args(checkouts)`. The agent, the copies of the repository (`git worktree list`), the arguments
+ * and the task from the CLI come first: a refusal opens nothing. Then the tab in the space of the
+ * project — a pane in the main checkout, not in a copy nested in it — or a new space when there
+ * is none; the agent is remembered for the project.
+ * @param {RootDeps} deps
+ * @param {RootStart & {name: string, args: (checkouts: Worktree[]) => Result<string[]>}} input
+ * @returns {Promise<Result<Opened>>}
+ */
+async function openInRoot(deps, { agent, root, gitDir, knownAgents, name, args }) {
   const { exec, run, setShared } = deps
-  const { kind, id, agent, project, root, gitDir, knownAgents } = input
   const command = harnessRun(knownAgents, agent)
   if (command.ok === false) return command
   const listed = await runGit(exec, worktreeListArgs(root), undefined, 'git_failed')
   if (listed.ok === false) return listed
-  const worktrees = parseWorktrees(listed.data).map((row) => row.path)
+  const checkouts = parseWorktrees(listed.data)
+  const built = args(checkouts)
+  if (built.ok === false) return built
 
-  const prepare = PREPARE_KINDS.includes(kind)
-  const args = prepare ? preparePromptArgs({ epic: id, project }) : taskPromptArgs({ task: id, project, mode: kind, agent, root })
-  const answer = await runCli(exec, args, root)
+  const answer = await runCli(exec, built.data, root)
   if (answer.ok === false) return answer
   const text = answer.data?.text
   if (typeof text !== 'string' || text === '') {
     return { ok: false, error: { code: 'bad_output', fact: 'the CLI answered with no task', action: '' } }
   }
 
-  const name = prepare ? `prepare-${id}` : `task-${id}`
+  const worktrees = checkouts.map((row) => row.path)
   const space = rootSpace({ spaces: deps.spaces(), panes: deps.panes(), root, worktrees })
   if (space === null) run('space.new', projectSpaceArgs({ root, name, run: command.data, text }))
   else run('tab.new', tabNewArgs({ space, name, folder: root, run: command.data, text }))
   setShared(agentKey(gitDir), agent)
   return { ok: true, data: { name, command: space === null ? 'space.new' : 'tab.new', space } }
+}
+
+/**
+ * Opens an agent on idea `task` (Brainstorm): the task `prompt idea` in a tab `idea-<id>` in the
+ * root of the project, as `openInRoot` does.
+ * @param {RootDeps} deps
+ * @param {RootStart & {task: number}} input
+ * @returns {Promise<Result<Opened>>}
+ */
+export async function startIdea(deps, input) {
+  const { task, project, agent, root } = input
+  return openInRoot(deps, { ...input, name: `idea-${task}`, args: () => ({ ok: true, data: ideaPromptArgs({ task, project, agent, root }) }) })
+}
+
+/**
+ * Opens an agent that plans a spec and builds it (Plan & build): the task `prompt spec` with the
+ * branch of the main checkout as its base, in a tab `doc-<N>` for a spec document or
+ * `plan-<epic>` for an epic, in the root of the project, as `openInRoot` does.
+ * @param {RootDeps} deps
+ * @param {RootStart & {target: SpecTarget}} input
+ * @returns {Promise<Result<Opened>>}
+ */
+export async function startSpec(deps, input) {
+  const { target, project, agent, root } = input
+  const name = 'doc' in target ? `doc-${target.doc}` : `plan-${target.epic}`
+  return openInRoot(deps, {
+    ...input,
+    name,
+    args: (checkouts) => {
+      const main = mainCheckout(checkouts)
+      return main.ok === false ? main : { ok: true, data: specPromptArgs({ target, project, agent, root, base: main.data.base }) }
+    }
+  })
+}
+
+/**
+ * Accepts proposal `doc` (the first step of its Brainstorm): the CLI answers the idea the
+ * proposal became, the same one when it was accepted before. It opens nothing.
+ * @param {{exec: Exec}} deps
+ * @param {{doc: number, project: string, root: string}} input
+ * @returns {Promise<Result<{task: number}>>}
+ */
+export async function acceptProposal({ exec }, { doc, project, root }) {
+  const answer = await runCli(exec, proposalAcceptArgs({ doc, project }), root)
+  if (answer.ok === false) return answer
+  const task = answer.data?.task
+  if (!Number.isInteger(task) || task <= 0) {
+    return { ok: false, error: { code: 'bad_output', fact: 'the CLI answered with no task number', action: '' } }
+  }
+  return { ok: true, data: { task } }
+}
+
+/**
+ * Declines proposal `doc` for `reason`; a reason is required, and without one the CLI is not run.
+ * @param {{exec: Exec}} deps
+ * @param {{doc: number, project: string, root: string, reason?: string | null}} input
+ * @returns {Promise<Result<null>>}
+ */
+export async function declineProposal({ exec }, { doc, project, root, reason }) {
+  const said = String(reason ?? '').trim()
+  if (said === '') return { ok: false, error: { code: 'reason_missing', fact: '', action: '' } }
+  const answer = await runCli(exec, proposalDeclineArgs({ doc, project, reason: said }), root)
+  if (answer.ok === false) return answer
+  return { ok: true, data: null }
 }

@@ -6,6 +6,7 @@ import {
   epicRefsArgs,
   epicWorktreePath,
   gitDirArgs,
+  mainCheckout,
   parseRefs,
   parseWorktrees,
   worktreeAddArgs,
@@ -132,6 +133,16 @@ test('epicPlace takes the local branch of the main checkout as the base, not a r
   const text = `worktree ${ROOT}\nHEAD a\nbranch refs/heads/release/2.0\n\n`
   const placed = epicPlace({ worktrees: parseWorktrees(text), refs: '', epic: 5, home: HOME })
   assert.equal(placed.data.base, 'release/2.0')
+})
+
+test('mainCheckout: the root and the branch of the first checkout; no checkout or no branch refused', () => {
+  assert.deepEqual(mainCheckout(parseWorktrees(record('git-worktree-list.json').stdout)), { ok: true, data: { root: ROOT, base: 'main' } })
+  assert.deepEqual(mainCheckout([]), { ok: false, error: { code: 'git_failed', fact: 'git listed no checkout of the repository', action: '' } })
+  assert.deepEqual(mainCheckout(null), mainCheckout([]))
+  assert.deepEqual(mainCheckout(parseWorktrees(record('git-worktree-list-detached.json').stdout)), {
+    ok: false,
+    error: { code: 'root_detached', fact: 'the main checkout is on no branch', action: '' }
+  })
 })
 
 test('on real repositories with spaces and non-ASCII letters in their paths, the copy is found, made and listed whole', (t) => {
