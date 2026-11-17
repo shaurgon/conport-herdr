@@ -1,7 +1,8 @@
 // The projects of the mod: the git repositories the spaces of this machine stand in. Checkouts
 // of one repository, those under ~/.herdr/worktrees too, are one project, told apart by the
 // absolute git directory they share.
-import { trimSlash } from './git.js'
+import { rejectionText } from './cli.js'
+import { gitDirArgs, trimSlash } from './git.js'
 import { localSpaces } from './session.js'
 import { LOCAL_SETTINGS_FILE, resolveSettingsVerdict, SETTINGS_FILE } from './settings.js'
 
@@ -191,6 +192,120 @@ export function mergeProjects(spaces, gitDirs) {
     }
   }
   return { projects, plain }
+}
+
+/**
+ * The folders of `spaces` (`spaceFolders`) git gave no answer for in `gitDirs`, in the order they
+ * first appear. An answer of null (outside git) or a failure counts as one.
+ * @param {SpaceFolders[]} spaces
+ * @param {Record<string, GitDirAnswer>} gitDirs
+ * @returns {string[]}
+ */
+export function unreadFolders(spaces, gitDirs) {
+  /** @type {string[]} */
+  const out = []
+  for (const space of spaces ?? []) {
+    for (const folder of space.folders ?? []) {
+      if (!Object.hasOwn(gitDirs ?? {}, folder) && !out.includes(folder)) out.push(folder)
+    }
+  }
+  return out
+}
+
+/**
+ * What git says of each of `folders`, `{[folder]: GitDirAnswer}`: `gitDirOf` of
+ * `git rev-parse --path-format=absolute --git-common-dir`, settled against the disk
+ * (`settleGitDir`). A git that does not start is a failure like any other.
+ * @param {string[]} folders
+ * @param {{exec: (command: string, args: string[]) => Promise<{code: number, stdout?: string, stderr?: string}>, read: (path: string) => Promise<string | null>}} host
+ * @returns {Promise<Record<string, GitDirAnswer>>}
+ */
+export async function askGitDirs(folders, { exec, read }) {
+  /** @type {Record<string, GitDirAnswer>} */
+  const dirs = {}
+  await Promise.all(
+    folders.map(async (folder) => {
+      /** @type {GitDirAnswer} */
+      let answer
+      try {
+        answer = gitDirOf(await exec('git', gitDirArgs(folder)))
+      } catch (error) {
+        // git did not start (not installed): a failure like any other, settled below — outside
+        // git when no .git is up to the root, else the folder names no project and says why.
+        answer = gitDirOf({ code: -1, stderr: rejectionText(error) })
+      }
+      // git speaks the person's language here: a refusal with no .git up to the root is outside git.
+      dirs[folder] = await settleGitDir(answer, folder, read)
+    })
+  )
+  return dirs
+}
+
+/**
+ * What a catch-up (`followSpaces`) answered: every answer of git, the projects they make and the
+ * project chosen.
+ * @typedef {{gitDirs: Record<string, GitDirAnswer>, projects: Project[], chosen: string | null}} FollowAnswer
+ */
+
+/**
+ * Whether the mod asks git about the folders the spaces reached since the last read: not while
+ * the full read (`reading`) or another catch-up (`following`) runs, and only when a folder of
+ * `spaces` has no answer in `gitDirs`.
+ * @param {{reading: boolean, following: boolean}} state
+ * @param {SpaceFolders[]} spaces
+ * @param {Record<string, GitDirAnswer>} gitDirs
+ * @returns {boolean}
+ */
+export function followNeeded({ reading, following }, spaces, gitDirs) {
+  return !reading && !following && unreadFolders(spaces, gitDirs).length > 0
+}
+
+/**
+ * The spaces reached folders git was not asked about: after a restart a window gives the mod its
+ * spaces before their panes report their live folders, so the first read asks about the folders
+ * the spaces started in. Asks git about the folders without an answer (`unreadFolders`) and
+ * returns every answer, the projects they make and the project chosen. The choice the opening of
+ * the panel would make now is `pickProject` with the focused space and `last` (the project chosen
+ * before the restart; `chosen` when left out). `chosen` stays while it is still a project and
+ * either the person picked it by hand (`byHand`) or that choice is a project git named before: a
+ * `cd` into a new folder of a known project, or a new repository in a space out of focus, changes
+ * nothing. Otherwise — the mod chose by itself from what it knew, and the opening would now choose
+ * a project it did not know, as after a restart — that choice is taken. Null when every folder has
+ * its answer.
+ * @param {SpaceFolders[]} spaces
+ * @param {Record<string, GitDirAnswer>} gitDirs
+ * @param {{exec: (command: string, args: string[]) => Promise<{code: number, stdout?: string, stderr?: string}>, read: (path: string) => Promise<string | null>, chosen: string | null, byHand: boolean, last?: string | null, focusedSpace: string | null}} host
+ * @returns {Promise<FollowAnswer | null>}
+ */
+export async function followSpaces(spaces, gitDirs, { exec, read, chosen, byHand, last = chosen, focusedSpace }) {
+  const unread = unreadFolders(spaces, gitDirs)
+  if (unread.length === 0) return null
+  const all = { ...gitDirs, ...(await askGitDirs(unread, { exec, read })) }
+  const { projects } = mergeProjects(spaces, all)
+  // A git directory git named before is no new project, whichever folder named it.
+  const seen = new Set(Object.values(gitDirs ?? {}).flatMap((dir) => (typeof dir === 'string' && dir.trim() !== '' ? [trimSlash(dir.trim())] : [])))
+  const next = pickProject(projects, { focusedSpace, last })
+  const kept = projects.some((project) => project.gitDir === chosen) && (byHand || seen.has(next))
+  return { gitDirs: all, projects, chosen: kept ? chosen : next }
+}
+
+/**
+ * What the mod keeps of a catch-up's answer, given what it started from (`started`) and what the
+ * mod holds now (`now`). Nothing (null) when there is no answer, or a full read runs or ran
+ * meanwhile (`reading`, or `gitDirs` is no longer the one asked from): that read asks about every
+ * folder and chooses itself. A project the person picked meanwhile (`chosen` changed) stays; else
+ * the answer's choice is taken and remembered (`remember`) when it is a new one. `load` says
+ * whether the project is read again: its project differs from the one read last (`loadedFor`).
+ * @param {FollowAnswer | null} answer
+ * @param {{gitDirs: Record<string, GitDirAnswer>, chosen: string | null}} started
+ * @param {{reading: boolean, gitDirs: Record<string, GitDirAnswer>, chosen: string | null, loadedFor: string | null}} now
+ * @returns {{gitDirs: Record<string, GitDirAnswer>, chosen: string | null, remember: boolean, load: boolean} | null}
+ */
+export function settleFollow(answer, started, now) {
+  if (answer === null || now.reading || now.gitDirs !== started.gitDirs) return null
+  const chosen = now.chosen !== started.chosen ? now.chosen : answer.chosen
+  const current = answer.projects.some((project) => project.gitDir === chosen) ? chosen : null
+  return { gitDirs: answer.gitDirs, chosen, remember: chosen !== null && chosen !== now.chosen, load: current !== now.loadedFor }
 }
 
 /**

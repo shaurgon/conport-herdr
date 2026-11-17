@@ -23,8 +23,8 @@ agent that builds or installs it.
   reads it itself.
 - Claude Code, Codex or Cursor. With Claude Code, the conport plugin gives the
   default subagent types of the four roles of an epic.
-- Update Orca's conport plugin to 0.8.0 and the Herdr mod to 0.3.0 together
-  with the conport plugin 25.
+- Orca's conport plugin 0.9.0 or later and the Herdr mod 0.4.0 or later go
+  with the conport plugin 25.1 or later; update them together.
 
 The mod runs programs (`npx -y conport@<version>`, `git`) and, through the CLI,
 reaches the ConPort service over the network.

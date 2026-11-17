@@ -6,7 +6,7 @@
 // proposal, a spec or a task, or declines a proposal. The list is read in full when the mod opens,
 // on Refresh, after a start of its own and every 10 minutes; every minute the light read of the
 // taken rows marks them and asks for the full read when the set changed. Herdr redraws the mod
-// when its live data changes.
+// when its live data changes; a folder the spaces reach after the last read is asked of git then.
 import { div, View } from 'gpui-kit'
 import { h_flex, InputState, Scrollbar, v_flex } from 'gpui-base'
 import { agents, exec, focused, home, knownAgents, panes, readTextFile, run, setShared, shared, spaces, theme } from 'herdr'
@@ -20,18 +20,20 @@ import {
   taskCounts,
   taskCountsLine
 } from './cli.js'
-import { epicWorktreePath, gitDirArgs } from './git.js'
+import { epicWorktreePath } from './git.js'
 import { DEFAULT_ROLES, harnessChoices } from './harness.js'
 import { acceptProposal, declineProposal, handToAgent, readPlace, startEpic, startIdea, startSpec } from './launch.js'
 import {
+  askGitDirs,
   bindingParts,
-  gitDirOf,
+  followNeeded,
+  followSpaces,
   mergeProjects,
   pickProject,
   projectBinding,
   readBindingTexts,
   readConfigHome,
-  settleGitDir,
+  settleFollow,
   spaceFolders
 } from './projects.js'
 import { ListReader } from './reader.js'
@@ -167,6 +169,10 @@ export default class ConportMod extends View {
     this.known = null
     /** @type {string | null} */
     this.chosen = stored('conport.project', null)
+    // The project chosen before the window restarted, or picked by hand since: the last choice of a
+    // catch-up (`followFolders`), which the full read may already have replaced in `chosen`.
+    /** @type {string | null} */
+    this.lastChosen = this.chosen
     this.pickedByHand = false
     this.pickerOpen = false
     /** @type {Binding | null} */
@@ -237,6 +243,11 @@ export default class ConportMod extends View {
      */
     this.holds = {}
     this.projectLoad = 0
+    // The git directory of the project `loadProject` last read, null for none; whether git is
+    // being asked about folders the spaces reached after the last read (`followFolders`).
+    /** @type {string | null} */
+    this.loadedFor = null
+    this.following = false
     this.epicLoad = 0
     this.refresh(cx)
     // The light read every minute, while the view of the mod lives: the timer is the view's.
@@ -267,24 +278,7 @@ export default class ConportMod extends View {
     this.known = null
     cx.notify()
     const folders = unique(spaceFolders(spaces(), panes()).flatMap((space) => space.folders))
-    /** @type {Record<string, GitDirAnswer>} */
-    const dirs = {}
-    await Promise.all(
-      folders.map(async (folder) => {
-        /** @type {GitDirAnswer} */
-        let answer
-        try {
-          answer = gitDirOf(await exec('git', gitDirArgs(folder)))
-        } catch (error) {
-          // git did not start (not installed): a failure like any other, settled below — outside
-          // git when no .git is up to the root, else the folder names no project and says why.
-          answer = gitDirOf({ code: -1, stderr: rejectionText(error) })
-        }
-        // git speaks the person's language here: a refusal with no .git up to the root is outside git.
-        dirs[folder] = await settleGitDir(answer, folder, readTextFile)
-      })
-    )
-    this.gitDirs = dirs
+    this.gitDirs = await askGitDirs(folders, { exec, read: readTextFile })
     try {
       this.known = { ok: true, data: await knownAgents() }
     } catch (error) {
@@ -299,6 +293,42 @@ export default class ConportMod extends View {
     if (this.chosen !== null) store('conport.project', this.chosen)
     this.reading = false
     await this.loadProject(cx)
+  }
+
+  /**
+   * Asks git about the folders the spaces reached since the last read, when there are any: after
+   * a restart the panes report their live folders only after the mod read the folders the spaces
+   * started in. The project is chosen by the rule of the full read and read when it differs from
+   * the one read last (`settleFollow`). Herdr redraws the mod when the spaces change; the redraw
+   * calls this.
+   */
+  followFolders() {
+    const now = spaceFolders(spaces(), panes())
+    if (!followNeeded(this, now, this.gitDirs)) return
+    this.following = true
+    this.view.spawn(async (cx) => {
+      const started = { gitDirs: this.gitDirs, chosen: this.chosen }
+      let answer = null
+      try {
+        answer = await followSpaces(now, started.gitDirs, {
+          exec,
+          read: readTextFile,
+          chosen: started.chosen,
+          byHand: this.pickedByHand,
+          last: this.lastChosen ?? started.chosen,
+          focusedSpace: focused()?.space ?? null
+        })
+      } finally {
+        this.following = false
+      }
+      const kept = settleFollow(answer, started, this)
+      if (kept === null) return
+      this.gitDirs = kept.gitDirs
+      this.chosen = kept.chosen
+      if (kept.remember) store('conport.project', kept.chosen)
+      if (kept.load) await this.loadProject(cx)
+      else cx.notify()
+    })
   }
 
   /** The projects and the folders without git of the spaces of this machine, as last read. */
@@ -336,6 +366,7 @@ export default class ConportMod extends View {
     this.expanded = null
     cx.notify()
     const project = this.current()
+    this.loadedFor = project?.gitDir ?? null
     if (project === null) return
     const texts = await readBindingTexts({
       read: readTextFile,
@@ -509,6 +540,7 @@ export default class ConportMod extends View {
     this.search.set_value('')
     if (gitDir === this.chosen) return cx.notify()
     this.chosen = gitDir
+    this.lastChosen = gitDir
     this.pickedByHand = true
     store('conport.project', gitDir)
     this.notice = null
@@ -854,6 +886,7 @@ export default class ConportMod extends View {
   // --- drawing -----------------------------------------------------------------------------------
 
   render() {
+    this.followFolders()
     // Herdr redraws the mod when its live data changes: a session seen ends the wait of its start.
     endSeenHolds(this.holds, (worktree) => this.copySession(worktree))
     const t = /** @type {Theme} */ (theme())

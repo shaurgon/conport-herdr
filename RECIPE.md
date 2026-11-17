@@ -321,5 +321,5 @@ delete `~/.config/herdr-app/mods/conport`, copy the new `mods/conport/` in its
 place and run `herdr-app check ~/.config/herdr-app/mods/conport`. What the mod
 remembers lives in Herdr's shared state and survives the update.
 
-Update Orca's conport plugin to 0.8.0 and the Herdr mod to 0.3.0 together with
-the conport plugin 25.
+Orca's conport plugin 0.9.0 or later and the Herdr mod 0.4.0 or later go with
+the conport plugin 25.1 or later; update them together.

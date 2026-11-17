@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
 import { gitDirArgs } from '../mods/conport/git.js'
 import {
+  askGitDirs,
   bindingParts,
+  followNeeded,
+  followSpaces,
   gitDirOf,
   mainRootOf,
   mergeProjects,
@@ -18,8 +21,10 @@ import {
   readConfigHome,
   readErrorCode,
   SETTINGS_GIT_TIMEOUT_MS,
+  settleFollow,
   settleGitDir,
-  spaceFolders
+  spaceFolders,
+  unreadFolders
 } from '../mods/conport/projects.js'
 import { git, HOME, record, repository, scratch } from './records.mjs'
 
@@ -497,6 +502,321 @@ test('what git answered is kept, and nothing read, unless it refused', async () 
   assert.equal(await settleGitDir('/work/acme/.git', '/work/acme', read), '/work/acme/.git')
   assert.equal(await settleGitDir(null, '/work/notes', read), null)
   assert.deepEqual(asked, [])
+})
+
+/** Herdr's `exec` for git, run for real, with every folder it was asked about. */
+function realGit() {
+  /** @type {string[]} */
+  const asked = []
+  const exec = async (/** @type {string} */ command, /** @type {string[]} */ args) => {
+    asked.push(args[1])
+    const out = spawnSync(command, args, { encoding: 'utf8' })
+    return { code: out.status ?? -1, stdout: out.stdout, stderr: out.stderr }
+  }
+  return { exec, asked }
+}
+
+test('after the window restarts, the live folders the panes report late are asked of git and the project is found', async (t) => {
+  // A restored window gives the mod its spaces before their panes report a folder: the first read
+  // asks git about the folders the spaces started in. The panes then report their live folder —
+  // here the same repository by another path, as a temporary folder and its symlinked real path on macOS.
+  const top = scratch(t)
+  const root = repository(join(top, 'shop'))
+  const started = join(top, 'link-to-shop')
+  symlinkSync(root, started)
+  const restored = { id: 'sp-shop', name: 'shop', folder: started, machine: null, tabs: [{ id: 'tb-shop' }] }
+  const other = { id: 'sp-home', name: '~', folder: top, machine: null, tabs: [{ id: 'tb-home' }] }
+  const spaces = [other, restored]
+  const mounting = [
+    { pane: 'p1', tab: 'tb-home', cwd: null },
+    { pane: 'p2', tab: 'tb-shop', cwd: null }
+  ]
+  const live = [
+    { pane: 'p1', tab: 'tb-home', cwd: null },
+    { pane: 'p2', tab: 'tb-shop', cwd: root }
+  ]
+  const { exec, asked } = realGit()
+  const first = await followSpaces(spaceFolders(spaces, mounting), {}, { exec, read: readText, chosen: null, byHand: false, focusedSpace: 'sp-shop' })
+  assert.notEqual(first, null)
+  assert.deepEqual(asked.sort(), [started, top].sort())
+  const gitDir = `${root}/.git`
+  assert.equal(first.chosen, gitDir)
+
+  // What the panel had before: the folders read at mount name no live folder, so no project.
+  assert.deepEqual(mergeProjects(spaceFolders(spaces, live), first.gitDirs).projects, [])
+
+  // The live folder no answer is kept for is asked of git, and only it; the project is found.
+  asked.length = 0
+  const caught = await followSpaces(spaceFolders(spaces, live), first.gitDirs, { exec, read: readText, chosen: null, byHand: false, focusedSpace: 'sp-shop' })
+  assert.notEqual(caught, null)
+  assert.deepEqual(asked, [root])
+  assert.equal(caught.gitDirs[started], gitDir)
+  assert.equal(caught.gitDirs[root], gitDir)
+  assert.deepEqual(caught.projects.map((project) => [project.gitDir, project.spaces]), [[gitDir, ['sp-shop']]])
+  assert.equal(caught.chosen, gitDir)
+
+  // Every folder answered: nothing is asked and nothing changes.
+  asked.length = 0
+  assert.equal(await followSpaces(spaceFolders(spaces, live), caught.gitDirs, { exec, read: readText, chosen: gitDir, byHand: false, focusedSpace: 'sp-shop' }), null)
+  assert.deepEqual(asked, [])
+})
+
+test('unreadFolders: the folders of the spaces git gave no answer for, an answer of null or a failure counting as one', () => {
+  const spaces = [
+    { id: 's1', name: 'a', folders: ['/a', '/b'] },
+    { id: 's2', name: 'b', folders: ['/b', '/c', '/d'] }
+  ]
+  assert.deepEqual(unreadFolders(spaces, {}), ['/a', '/b', '/c', '/d'])
+  assert.deepEqual(unreadFolders(spaces, { '/a': '/a/.git', '/b': null, '/c': { failed: 'git failed (x): ConPort settings were not read' } }), ['/d'])
+  assert.deepEqual(unreadFolders(spaces, { '/a': '/a/.git', '/b': null, '/c': null, '/d': null }), [])
+  assert.deepEqual(unreadFolders([], {}), [])
+})
+
+test('followSpaces chooses by the rule of the full read: the hand-picked project while it stays one, else focus, else the last', async () => {
+  const answers = /** @type {Record<string, string>} */ ({ '/x': '/x/.git', '/y': '/y/.git' })
+  const exec = async (/** @type {string} */ _command, /** @type {string[]} */ args) => ({ code: 0, stdout: `${answers[args[1]]}\n`, stderr: '' })
+  const read = async () => null
+  const spaces = [
+    { id: 's1', name: 'x', folders: ['/x'] },
+    { id: 's2', name: 'y', folders: ['/y'] }
+  ]
+  // A project the full read chose by itself gives way to the project of the focused space.
+  const auto = await followSpaces(spaces, { '/x': '/x/.git' }, { exec, read, chosen: '/x/.git', byHand: false, focusedSpace: 's2' })
+  assert.equal(auto?.chosen, '/y/.git')
+  // One the person picked stays while it is a project.
+  const kept = await followSpaces(spaces, { '/x': '/x/.git' }, { exec, read, chosen: '/x/.git', byHand: true, focusedSpace: 's2' })
+  assert.equal(kept?.chosen, '/x/.git')
+  // A hand-picked project that is gone gives way too.
+  const gone = await followSpaces(spaces, { '/x': '/x/.git' }, { exec, read, chosen: '/gone/.git', byHand: true, focusedSpace: 's2' })
+  assert.equal(gone?.chosen, '/y/.git')
+  const first = await followSpaces(spaces, {}, { exec, read, chosen: null, byHand: false, focusedSpace: null })
+  assert.equal(first?.chosen, '/x/.git')
+  // No focused project: the last choice comes next, not the one the full read made by itself.
+  const remembered = await followSpaces(spaces, { '/x': '/x/.git' }, { exec, read, chosen: '/x/.git', byHand: false, last: '/y/.git', focusedSpace: null })
+  assert.equal(remembered?.chosen, '/y/.git')
+  const focusFirst = await followSpaces(spaces, {}, { exec, read, chosen: null, byHand: false, last: '/y/.git', focusedSpace: 's1' })
+  assert.equal(focusFirst?.chosen, '/x/.git')
+})
+
+test('after a restart with two projects, the catch-up chooses the project of the focused space over the one the full read found first', async (t) => {
+  // Space A started in repository X and stands there; space B, in focus, started in a folder
+  // outside git and its terminal stands in repository Y, the project chosen before the restart.
+  const top = scratch(t)
+  const x = repository(join(top, 'x'))
+  const y = repository(join(top, 'y'))
+  const outside = join(top, 'home')
+  mkdirSync(outside)
+  const spaces = [
+    { id: 'A', name: 'x', folder: x, machine: null, tabs: [{ id: 'tA' }] },
+    { id: 'B', name: '~', folder: outside, machine: null, tabs: [{ id: 'tB' }] }
+  ]
+  const mounting = [
+    { pane: 'pA', tab: 'tA', cwd: null },
+    { pane: 'pB', tab: 'tB', cwd: null }
+  ]
+  const live = [
+    { pane: 'pA', tab: 'tA', cwd: x },
+    { pane: 'pB', tab: 'tB', cwd: y }
+  ]
+  const { exec } = realGit()
+  const before = `${y}/.git`
+  // The full read at mount knows only X: the focused space names no project and the last one is
+  // not there, so it takes the first, X.
+  const atStart = spaceFolders(spaces, mounting)
+  const mounted = await askGitDirs([...new Set(atStart.flatMap((space) => space.folders))], { exec, read: readText })
+  const fromLoad = pickProject(mergeProjects(atStart, mounted).projects, { focusedSpace: 'B', last: before })
+  assert.equal(fromLoad, `${x}/.git`)
+  // The catch-up finds Y and chooses it, the focused space's project, as a new opening of the panel would.
+  const caught = await followSpaces(spaceFolders(spaces, live), mounted, {
+    exec,
+    read: readText,
+    chosen: fromLoad,
+    byHand: false,
+    last: before,
+    focusedSpace: 'B'
+  })
+  assert.deepEqual(
+    caught?.projects.map((project) => project.gitDir),
+    [`${x}/.git`, before]
+  )
+  assert.equal(caught?.chosen, before)
+  // Picked by hand before the catch-up, X stays.
+  const byHand = await followSpaces(spaceFolders(spaces, live), mounted, {
+    exec,
+    read: readText,
+    chosen: fromLoad,
+    byHand: true,
+    last: fromLoad,
+    focusedSpace: 'B'
+  })
+  assert.equal(byHand?.chosen, `${x}/.git`)
+})
+
+test('a catch-up that finds no new project keeps the project chosen by itself: a cd into a new folder of a known one changes nothing', async (t) => {
+  // The panel chose X by itself; the person works in space B, in focus, whose terminal stands in
+  // repository Y, and runs `cd src` there. The new folder belongs to Y, which git named before.
+  const top = scratch(t)
+  const x = repository(join(top, 'x'))
+  const y = repository(join(top, 'y'))
+  const src = join(y, 'src')
+  mkdirSync(src)
+  const spaces = [
+    { id: 'A', name: 'x', folder: x, machine: null, tabs: [{ id: 'tA' }] },
+    { id: 'B', name: 'y', folder: y, machine: null, tabs: [{ id: 'tB' }] }
+  ]
+  const before = [
+    { pane: 'pA', tab: 'tA', cwd: x },
+    { pane: 'pB', tab: 'tB', cwd: y }
+  ]
+  const after = [
+    { pane: 'pA', tab: 'tA', cwd: x },
+    { pane: 'pB', tab: 'tB', cwd: src }
+  ]
+  const { exec, asked } = realGit()
+  const known = await askGitDirs([x, y], { exec, read: readText })
+  asked.length = 0
+  const caught = await followSpaces(spaceFolders(spaces, after), known, {
+    exec,
+    read: readText,
+    chosen: `${x}/.git`,
+    byHand: false,
+    last: `${x}/.git`,
+    focusedSpace: 'B'
+  })
+  assert.deepEqual(asked, [src])
+  assert.deepEqual(
+    caught?.projects.map((project) => project.gitDir),
+    [`${x}/.git`, `${y}/.git`]
+  )
+  assert.equal(caught?.chosen, `${x}/.git`)
+  // The same projects as before the cd.
+  assert.deepEqual(
+    mergeProjects(spaceFolders(spaces, before), known).projects.map((project) => project.gitDir),
+    [`${x}/.git`, `${y}/.git`]
+  )
+  // A project chosen by itself that is gone gives way even so.
+  const gone = await followSpaces(spaceFolders(spaces, after), known, {
+    exec,
+    read: readText,
+    chosen: '/gone/.git',
+    byHand: false,
+    focusedSpace: 'B'
+  })
+  assert.equal(gone?.chosen, `${y}/.git`)
+})
+
+test('a new repository in a space out of focus keeps the project chosen by itself: the choice at opening would not differ', async (t) => {
+  // The panel chose X by itself; space B, in focus, stands in Y, which git named before; an agent
+  // in space C, out of focus, makes a new repository Z and goes into it.
+  const top = scratch(t)
+  const x = repository(join(top, 'x'))
+  const y = repository(join(top, 'y'))
+  const plain = join(top, 'plain')
+  mkdirSync(plain)
+  const spaces = [
+    { id: 'A', name: 'x', folder: x, machine: null, tabs: [{ id: 'tA' }] },
+    { id: 'B', name: 'y', folder: y, machine: null, tabs: [{ id: 'tB' }] },
+    { id: 'C', name: 'c', folder: plain, machine: null, tabs: [{ id: 'tC' }] }
+  ]
+  const { exec, asked } = realGit()
+  const known = await askGitDirs([x, y, plain], { exec, read: readText })
+  const z = repository(join(top, 'z'))
+  const live = [
+    { pane: 'pA', tab: 'tA', cwd: x },
+    { pane: 'pB', tab: 'tB', cwd: y },
+    { pane: 'pC', tab: 'tC', cwd: z }
+  ]
+  asked.length = 0
+  const caught = await followSpaces(spaceFolders(spaces, live), known, {
+    exec,
+    read: readText,
+    chosen: `${x}/.git`,
+    byHand: false,
+    last: `${x}/.git`,
+    focusedSpace: 'B'
+  })
+  assert.deepEqual(asked, [z])
+  assert.deepEqual(
+    caught?.projects.map((project) => project.gitDir),
+    [`${x}/.git`, `${y}/.git`, `${z}/.git`]
+  )
+  assert.equal(caught?.chosen, `${x}/.git`)
+  // With the focus on C, the opening would choose Z, which git had not named: the panel takes it.
+  const focusedOnNew = await followSpaces(spaceFolders(spaces, live), known, {
+    exec,
+    read: readText,
+    chosen: `${x}/.git`,
+    byHand: false,
+    last: `${x}/.git`,
+    focusedSpace: 'C'
+  })
+  assert.equal(focusedOnNew?.chosen, `${z}/.git`)
+  // Picked by hand, X stays even then.
+  const byHand = await followSpaces(spaceFolders(spaces, live), known, {
+    exec,
+    read: readText,
+    chosen: `${x}/.git`,
+    byHand: true,
+    focusedSpace: 'C'
+  })
+  assert.equal(byHand?.chosen, `${x}/.git`)
+})
+
+test('followNeeded: no catch-up during the full read or another catch-up, nor when every folder has its answer', () => {
+  const spaces = [{ id: 's1', name: 'a', folders: ['/a'] }]
+  const idle = { reading: false, following: false }
+  assert.equal(followNeeded(idle, spaces, {}), true)
+  assert.equal(followNeeded({ reading: true, following: false }, spaces, {}), false)
+  assert.equal(followNeeded({ reading: false, following: true }, spaces, {}), false)
+  assert.equal(followNeeded(idle, spaces, { '/a': null }), false)
+  assert.equal(followNeeded(idle, [], {}), false)
+})
+
+test('settleFollow: what the mod keeps of a catch-up', () => {
+  const asked = { '/x': '/x/.git' }
+  const all = { '/x': '/x/.git', '/y': '/y/.git' }
+  const projects = ['/x/.git', '/y/.git'].map((gitDir) => ({ gitDir, root: '', name: '', spaces: [], folders: [] }))
+  const answer = { gitDirs: all, projects, chosen: '/y/.git' }
+  const started = { gitDirs: asked, chosen: '/x/.git' }
+  const now = { reading: false, gitDirs: asked, chosen: '/x/.git', loadedFor: '/x/.git' }
+  // The answer's choice is taken, remembered, and the new project read.
+  assert.deepEqual(settleFollow(answer, started, now), { gitDirs: all, chosen: '/y/.git', remember: true, load: true })
+  // No answer, a full read running, or a Refresh that ran meanwhile: nothing is kept.
+  assert.equal(settleFollow(null, started, now), null)
+  assert.equal(settleFollow(answer, started, { ...now, reading: true }), null)
+  assert.equal(settleFollow(answer, started, { ...now, gitDirs: { ...asked } }), null)
+  // A project picked by hand meanwhile stays; it is read already, so nothing is read again.
+  assert.deepEqual(settleFollow(answer, started, { ...now, chosen: '/y/.git', loadedFor: '/y/.git' }), {
+    gitDirs: all,
+    chosen: '/y/.git',
+    remember: false,
+    load: false
+  })
+  const meanwhile = { ...answer, chosen: '/x/.git' }
+  assert.deepEqual(settleFollow(meanwhile, started, { ...now, chosen: '/y/.git', loadedFor: '/y/.git' }), {
+    gitDirs: all,
+    chosen: '/y/.git',
+    remember: false,
+    load: false
+  })
+  // The same choice: nothing to remember; read only when the project read last is not it.
+  assert.deepEqual(settleFollow(meanwhile, started, now), { gitDirs: all, chosen: '/x/.git', remember: false, load: false })
+  assert.deepEqual(settleFollow(meanwhile, started, { ...now, loadedFor: null }), { gitDirs: all, chosen: '/x/.git', remember: false, load: true })
+  // No project chosen: read again (as none) only when a project was read last.
+  const none = { ...answer, projects: [], chosen: null }
+  const empty = { ...now, chosen: null, loadedFor: null }
+  assert.deepEqual(settleFollow(none, { ...started, chosen: null }, empty), { gitDirs: all, chosen: null, remember: false, load: false })
+  assert.equal(settleFollow(none, { ...started, chosen: null }, { ...empty, loadedFor: '/x/.git' })?.load, true)
+})
+
+test('askGitDirs: a git that cannot start is a failure settled against the disk, as every refusal', async (t) => {
+  const top = scratch(t)
+  const notes = join(top, 'notes')
+  mkdirSync(notes)
+  const exec = async () => {
+    throw new Error('No such file or directory (os error 2)')
+  }
+  assert.deepEqual(await askGitDirs([notes], { exec, read: readText }), { [notes]: null })
 })
 
 test('what the panel shows of a binding', () => {
