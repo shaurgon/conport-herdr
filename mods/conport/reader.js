@@ -5,7 +5,7 @@
 import { needsFullRead, sddListArgs, sddTakenArgs } from './cli.js'
 import { pollStep } from './screen.js'
 
-/** @import { SddList, SddTaken } from './cli.js' */
+/** @import { Assignee, SddList, SddTaken } from './cli.js' */
 /** @import { Refusal, Result } from './refusals.js' */
 
 /**
@@ -46,6 +46,28 @@ export class ListReader {
     this.fullAgain = false
     /** Bumped by `reset`: an answer of an earlier project is thrown away. */
     this.generation = 0
+  }
+
+  /**
+   * The caller's handle as the last full read named it: null before a list, in a Private Team and
+   * when the CLI could not name the caller.
+   * @returns {string | null}
+   */
+  me() {
+    return this.list?.ok === true ? (this.list.data?.me ?? null) : null
+  }
+
+  /**
+   * Who leads root row `id` now: the light read when it names the row with the field — it is newer
+   * — else `row` as the list gave it; null for nobody.
+   * @param {number} id
+   * @param {{assignee?: Assignee | null}} row
+   * @returns {Assignee | null}
+   */
+  lead(id, row) {
+    const named = (Array.isArray(this.taken?.taken) ? this.taken.taken : []).find((t) => t.id === id)
+    if (named !== undefined && 'assignee' in named) return named.assignee ?? null
+    return row.assignee ?? null
   }
 
   /** Another project: what was read goes, and a read still running for the old one is ignored. */

@@ -591,6 +591,42 @@ test('startSpec passes the base of the main checkout', async () => {
   ])
 })
 
+test('takeOver adds --take-over to each prompt', () => {
+  const at = { project: 'p', agent: 'claude', root: '/r' }
+  const built = (takeOver) => [
+    epicPromptArgs({ epic: 7, project: 'p', harness: 'claude', worktree: '/w', base: 'main', takeOver }),
+    ideaPromptArgs({ ...at, task: 41, takeOver }),
+    specPromptArgs({ ...at, target: { epic: 9 }, base: 'main', takeOver }),
+    taskPromptArgs({ ...at, task: 41, mode: 'do', takeOver })
+  ]
+  // The person's yes reaches the CLI as the one flag, right before --json, which stays last.
+  for (const args of built(true)) {
+    assert.deepEqual(args.slice(-2), ['--take-over', '--json'], args.join(' '))
+    assert.equal(args.filter((a) => a === '--take-over').length, 1, args.join(' '))
+  }
+  for (const args of [...built(false), ...built(undefined)]) assert.ok(!args.includes('--take-over'), args.join(' '))
+})
+
+test('startIdea, startSpec and startEpic pass takeOver to the CLI as --take-over, and nothing without it', async () => {
+  const promptOf = (log) => log.find((entry) => entry.command === 'npx').args
+  const idea = handWorld({ inRoot: true })
+  await startIdea(idea.deps, launch({ task: 2116, takeOver: true }))
+  assert.deepEqual(promptOf(idea.log).slice(-2), ['--take-over', '--json'])
+  const spec = mainOn('main')
+  await startSpec(spec.deps, launch({ target: { epic: 1597 }, takeOver: true }))
+  assert.deepEqual(promptOf(spec.log).slice(-2), ['--take-over', '--json'])
+  const epic = world()
+  await startEpic(epic.deps, input(415, { takeOver: true }))
+  assert.deepEqual(promptOf(epic.log).slice(-2), ['--take-over', '--json'])
+  // Without the yes: no flag.
+  const own = handWorld({ inRoot: true })
+  await startIdea(own.deps, launch({ task: 2116 }))
+  assert.ok(!promptOf(own.log).includes('--take-over'))
+  const ownEpic = world()
+  await startEpic(ownEpic.deps, input(415))
+  assert.ok(!promptOf(ownEpic.log).includes('--take-over'))
+})
+
 test('startSpec: a detached main checkout has no base and is refused before the CLI is asked', async () => {
   const { deps, log } = mainOn(null)
   const refused = await startSpec(deps, launch({ target: { doc: 245 } }))

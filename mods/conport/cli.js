@@ -26,20 +26,31 @@ import { CLI_VERSION } from './version.js'
  */
 
 /**
+ * The person who leads a task, as `sdd list --json` names one: the handle, the email when the
+ * person has one, and whether the person has left the team.
+ * @typedef {{handle: string, email: string | null, former_member: boolean}} Assignee
+ */
+
+/**
+ * Who leads a row: null for nobody; absent in a Private Team and from a CLI older than the field.
+ * @typedef {{assignee?: Assignee | null}} Led
+ */
+
+/**
  * An epic of the section In work: a spec and a plan; `spec` and `idea` are the spec it was
  * planned from and the idea that spec clarifies; `updated_at` only for one in progress.
- * @typedef {{id: number, title: string, status: string, updated_at?: string, progress: {open: number, total: number}, milestone: Milestone | null, ready: boolean, reason: string | null, spec: number | null, idea: number | null}} InWorkRow
+ * @typedef {{id: number, title: string, status: string, updated_at?: string, progress: {open: number, total: number}, milestone: Milestone | null, ready: boolean, reason: string | null, spec: number | null, idea: number | null} & Led} InWorkRow
  */
 
 /**
  * A spec of the section Specs: a document waiting for its plan (`epic` null, `status` null), or
  * an epic with a spec and no plan; `idea` the task it clarifies, `priority` its priority.
- * @typedef {{doc: number, title: string, idea: number | null, priority: number, epic: number | null, status: string | null, updated_at?: string}} SpecRow
+ * @typedef {{doc: number, title: string, idea: number | null, priority: number, epic: number | null, status: string | null, updated_at?: string} & Led} SpecRow
  */
 
 /**
  * An idea, a root task with no spec; or, the same shape, a task of an epic outside SDD.
- * @typedef {{id: number, kind: 'task' | 'bug', title: string, status: Status, updated_at?: string, priority: number, changes_requested: boolean}} IdeaRow
+ * @typedef {{id: number, kind: 'task' | 'bug', title: string, status: Status, updated_at?: string, priority: number, changes_requested: boolean} & Led} IdeaRow
  */
 
 /**
@@ -49,17 +60,18 @@ import { CLI_VERSION } from './version.js'
 
 /**
  * An epic with no spec, with its open tasks.
- * @typedef {{id: number, title: string, status: string, updated_at?: string, milestone: Milestone | null, progress: {open: number, total: number}, tasks: IdeaRow[]}} OutsideRow
+ * @typedef {{id: number, title: string, status: string, updated_at?: string, milestone: Milestone | null, progress: {open: number, total: number}, tasks: IdeaRow[]} & Led} OutsideRow
  */
 
 /**
- * What `sdd list --json` answers.
- * @typedef {{project?: string, in_work?: InWorkRow[], specs?: SpecRow[], ideas?: IdeaRow[], proposals?: ProposalRow[], skipped_proposals?: {doc: number, reason: string}[], outside?: OutsideRow[], unlisted?: number[]}} SddList
+ * What `sdd list --json` answers; `me` the caller's handle (null when the CLI could not name the
+ * caller; absent in a Private Team).
+ * @typedef {{project?: string, in_work?: InWorkRow[], specs?: SpecRow[], ideas?: IdeaRow[], proposals?: ProposalRow[], skipped_proposals?: {doc: number, reason: string}[], outside?: OutsideRow[], unlisted?: number[], me?: string | null}} SddList
  */
 
 /**
- * What `sdd list --taken --json` answers: the root tasks in progress.
- * @typedef {{project?: string, taken?: {id: number, kind: 'task' | 'bug' | 'epic', updated_at: string}[]}} SddTaken
+ * What `sdd list --taken --json` answers: the root tasks in progress, each with who leads it.
+ * @typedef {{project?: string, taken?: ({id: number, kind: 'task' | 'bug' | 'epic', updated_at: string} & Led)[]}} SddTaken
  */
 
 /**

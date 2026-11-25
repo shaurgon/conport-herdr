@@ -44,7 +44,10 @@ import {
   epicTaskRow,
   FIXER_NOTE,
   handNotice,
+  answerTakeOver,
+  epicStartKey,
   harnessLabel,
+  ledByOther,
   NO_AGENT,
   NO_MILESTONE,
   POLL_TAKEN_MS,
@@ -66,8 +69,10 @@ import {
   skippedLine,
   startNotice,
   startView,
-  TAKE_OVER_CONFIRM,
   takenMap,
+  takeOverAsk,
+  takeOverEpicAfter,
+  takeOverSheet,
   TYPE_MISSING_NOTE
 } from './screen.js'
 import { endSeenHolds, epicSession, HOLD_MS, releaseHold, rowSession, showTerminalCommands, startHold } from './session.js'
@@ -76,7 +81,7 @@ import { parts } from './ui.js'
 import { CLI_VERSION, MOD_VERSION } from './version.js'
 
 /** @import { AsyncContext, Context, Element } from 'gpui-kit' */
-/** @import { EpicTask, HandRow, InWorkRow, ProposalRow, SddList, SddSections, SpecRow } from './cli.js' */
+/** @import { Assignee, EpicTask, HandRow, InWorkRow, ProposalRow, SddList, SddSections, SpecRow } from './cli.js' */
 /** @import { Place } from './git.js' */
 /** @import { KnownAgent, RoleKey, Roles } from './harness.js' */
 /** @import { Binding, GitDirAnswer, Project } from './projects.js' */
@@ -92,8 +97,9 @@ import { CLI_VERSION, MOD_VERSION } from './version.js'
  */
 
 /**
- * A Take over waiting for the person's yes: the title of the row and what a yes starts.
- * @typedef {{title: string, go: (cx: Context) => void}} TakeOver
+ * A Take over waiting for the person's yes: the title of the row, who leads it when someone other
+ * than the caller does, and what a yes starts — told whether it takes the row over from that person.
+ * @typedef {{title: string, lead: Assignee | null, go: (cx: Context, takeOver: boolean) => void}} TakeOver
  */
 
 /**
@@ -228,6 +234,12 @@ export default class ConportMod extends View {
     this.sheet = null
     /** @type {TakeOver | null} */
     this.takeOver = null
+    /**
+     * The epic, by `<git dir>:<epic>`, the person said yes to taking over from another person: its
+     * screen is open, and its start lets the agent take it over.
+     * @type {string | null}
+     */
+    this.takeOverEpic = null
     /** @type {string | null} */
     this.sheetAgent = null
     this.confirmAgain = false
@@ -362,6 +374,7 @@ export default class ConportMod extends View {
     this.subagents = {}
     this.sheet = null
     this.takeOver = null
+    this.takeOverEpic = takeOverEpicAfter(this.takeOverEpic, { kind: 'project' })
     this.confirmAgain = false
     this.expanded = null
     cx.notify()
@@ -579,16 +592,27 @@ export default class ConportMod extends View {
   }
 
   /**
-   * Asks before a Take over: another session may be at the row.
+   * Asks before a Take over: another session may be at the row, or another person leads it.
    * @param {Context} cx
    * @param {string} title
-   * @param {(cx: Context) => void} go
+   * @param {Assignee | null} lead
+   * @param {(cx: Context, takeOver: boolean) => void} go
    */
-  askTakeOver(cx, title, go) {
-    this.takeOver = { title, go }
+  askTakeOver(cx, title, lead, go) {
+    this.takeOver = { title, lead, go }
     this.notice = null
     this.refusal = null
     cx.notify()
+  }
+
+  /**
+   * The person who leads root row `id` when someone other than the caller does, by the last reads.
+   * @param {number} id
+   * @param {{assignee?: Assignee | null}} row
+   * @returns {Assignee | null}
+   */
+  otherLead(id, row) {
+    return ledByOther(this.reader.lead(id, row), this.reader.me())
   }
 
   /**
@@ -675,6 +699,8 @@ export default class ConportMod extends View {
    */
   openEpic(cx, epic) {
     this.setOpened(epic)
+    // Opened by a press of its row, not by a yes to taking it over: its start takes nothing over.
+    this.takeOverEpic = takeOverEpicAfter(this.takeOverEpic, { kind: 'open' })
     this.notice = null
     this.refusal = null
     cx.spawn(async (cx) => this.loadEpic(cx))
@@ -683,6 +709,7 @@ export default class ConportMod extends View {
   /** @param {Context} cx */
   closeEpic(cx) {
     this.setOpened(null)
+    this.takeOverEpic = takeOverEpicAfter(this.takeOverEpic, { kind: 'close' })
     this.epicLoad++
     this.place = null
     this.epicTasks = null
@@ -732,7 +759,7 @@ export default class ConportMod extends View {
     this.refusal = null
     this.notice = null
     this.confirmAgain = false
-    const key = `${project.gitDir}:${epic.id}`
+    const key = epicStartKey(project.gitDir, epic.id)
     cx.spawn(async (cx) => {
       try {
         const answer = await startEpic(
@@ -745,13 +772,15 @@ export default class ConportMod extends View {
             folder: project.root,
             gitDir: project.gitDir,
             // Read as the guard above found it: a start runs only once Herdr named its agents.
-            knownAgents: /** @type {Ok<KnownAgent[]>} */ (this.known).data
+            knownAgents: /** @type {Ok<KnownAgent[]>} */ (this.known).data,
+            takeOver: this.takeOverEpic === key
           }
         )
         if (answer.ok === false) {
           this.refusal = answer.error
           return
         }
+        this.takeOverEpic = takeOverEpicAfter(this.takeOverEpic, { kind: 'started', key })
         const { [key]: _sent, ...others } = this.choices
         this.choices = others
         if (this.epicChoiceKey() === key) {
@@ -847,7 +876,7 @@ export default class ConportMod extends View {
         let answer
         if (open.kind === 'idea') {
           id = open.idea.id
-          answer = await startIdea(deps, { ...base, task: id })
+          answer = await startIdea(deps, { ...base, task: id, takeOver: open.takeOver === true })
         } else if (open.kind === 'proposal') {
           const accepted = await acceptProposal({ exec }, { doc: open.proposal.doc, project: handle, root: project.root })
           if (accepted.ok === false) {
@@ -861,7 +890,7 @@ export default class ConportMod extends View {
         } else if (open.kind === 'spec') {
           const { doc, epic } = open.spec
           id = epic ?? doc
-          answer = await startSpec(deps, { ...base, target: epic === null || epic === undefined ? { doc } : { epic } })
+          answer = await startSpec(deps, { ...base, target: epic === null || epic === undefined ? { doc } : { epic }, takeOver: open.takeOver === true })
         } else {
           id = open.task.id
           answer = await handToAgent(deps, { ...base, kind: open.kind, id })
@@ -1131,16 +1160,22 @@ export default class ConportMod extends View {
             /** @type {ActionRow} */
             const row = { type: 'epic', section: 'in_work', status: epic.status, reason: epic.reason, ready: epic.ready, progress: epic.progress }
             const open = (/** @type {Context} */ cx) => this.openEpic(cx, epic.id)
+            // A yes to taking over an epic another person leads opens its screen, whose start takes it over.
+            const takeOver = (/** @type {Context} */ cx, /** @type {boolean} */ over) => {
+              open(cx)
+              const gitDir = this.current()?.gitDir ?? null
+              this.takeOverEpic = takeOverEpicAfter(this.takeOverEpic, { kind: 'yes', gitDir, epic: epic.id, takeOver: over })
+            }
             return ui.row(`epic-${epic.id}`, {
               title: `${epic.id} · ${epic.title}`,
-              line: rowLine(row, { taken: isTaken, updated: taken?.get(epic.id) ?? epic.updated_at, now }),
+              line: rowLine(row, { taken: isTaken, updated: taken?.get(epic.id) ?? epic.updated_at, now, assignee: this.reader.lead(epic.id, epic) }),
               lineColor: epic.ready ? t.done : undefined,
               muted: Boolean(epic.reason),
               onClick: epic.reason ? undefined : (_event, cx) => open(cx),
               action: this.actions(ui, `epic-${epic.id}`, rowActions(row, isTaken, terminal.live), {
                 Start: open,
                 'Show terminal': () => this.showTerminal(terminal),
-                'Take over': (cx) => this.askTakeOver(cx, epic.title, open)
+                'Take over': (cx) => this.askTakeOver(cx, epic.title, this.otherLead(epic.id, epic), takeOver)
               })
             })
           })
@@ -1162,15 +1197,21 @@ export default class ConportMod extends View {
       const terminal = this.specTerminal(spec)
       /** @type {ActionRow} */
       const row = { type: 'spec', epic: spec.epic, priority: spec.priority }
-      const plan = (/** @type {Context} */ cx) => this.openSheet(cx, { kind: 'spec', spec })
+      const plan = (/** @type {Context} */ cx, over = false) => this.openSheet(cx, takeOverSheet({ kind: 'spec', spec }, over))
       const id = spec.epic === null || spec.epic === undefined ? `doc-${spec.doc}` : `${spec.epic}`
+      const epic = spec.epic ?? null
       return ui.row(`spec-${spec.doc}`, {
         title: `${id} · ${spec.title}`,
-        line: rowLine(row, { taken: isTaken, updated: (spec.epic ? taken?.get(spec.epic) : null) ?? spec.updated_at, now }),
+        line: rowLine(row, {
+          taken: isTaken,
+          updated: (spec.epic ? taken?.get(spec.epic) : null) ?? spec.updated_at,
+          now,
+          assignee: epic === null ? (spec.assignee ?? null) : this.reader.lead(epic, spec)
+        }),
         action: this.actions(ui, `spec-${spec.doc}`, rowActions(row, isTaken, terminal.live), {
           'Plan & build': plan,
           'Show terminal': () => this.showTerminal(terminal),
-          'Take over': (cx) => this.askTakeOver(cx, spec.title, plan),
+          'Take over': (cx) => this.askTakeOver(cx, spec.title, epic === null ? null : this.otherLead(epic, spec), plan),
           'Open spec': (cx) => this.openSpec(cx, spec.doc)
         })
       })
@@ -1204,17 +1245,17 @@ export default class ConportMod extends View {
       const terminal = this.tabSession([`idea-${idea.id}`, `task-${idea.id}`])
       /** @type {ActionRow} */
       const row = { type: 'idea', status: idea.status, mode: idea.mode, kind: idea.kind, priority: idea.priority, changes_requested: idea.changes_requested }
-      const brainstorm = (/** @type {Context} */ cx) => this.openSheet(cx, { kind: 'idea', idea })
+      const brainstorm = (/** @type {Context} */ cx, over = false) => this.openSheet(cx, takeOverSheet({ kind: 'idea', idea }, over))
       const hand = (/** @type {Context} */ cx) => idea.mode !== null && this.openSheet(cx, { kind: idea.mode, task: idea })
       return ui.row(`idea-${idea.id}`, {
         title: `${idea.id} · ${idea.title}`,
-        line: rowLine(row, { taken: isTaken, updated: taken?.get(idea.id) ?? idea.updated_at, now }),
+        line: rowLine(row, { taken: isTaken, updated: taken?.get(idea.id) ?? idea.updated_at, now, assignee: this.reader.lead(idea.id, idea) }),
         action: this.actions(ui, `idea-${idea.id}`, rowActions(row, isTaken, terminal.live), {
           Brainstorm: brainstorm,
           Review: hand,
           Fix: hand,
           'Show terminal': () => this.showTerminal(terminal),
-          'Take over': (cx) => this.askTakeOver(cx, idea.title, brainstorm)
+          'Take over': (cx) => this.askTakeOver(cx, idea.title, this.otherLead(idea.id, idea), brainstorm)
         })
       })
     })
@@ -1247,7 +1288,7 @@ export default class ConportMod extends View {
               const hand = (/** @type {Context} */ cx) => task.mode !== null && this.openSheet(cx, { kind: task.mode, task })
               return ui.row(`task-${task.id}`, {
                 title: `${task.id} · ${task.title}`,
-                line: rowLine(line, { taken: false }),
+                line: rowLine(line, { taken: false, assignee: task.assignee ?? null }),
                 action: this.actions(ui, `task-${task.id}`, rowActions(line, false, false), { 'Hand to agent': hand, Review: hand, Fix: hand })
               })
             })
@@ -1256,7 +1297,7 @@ export default class ConportMod extends View {
               .child(
                 ui.row(`outside-${epic.id}`, {
                   title: `${epic.id} · ${epic.title}`,
-                  line: rowLine(row, { taken: isTaken, updated: taken?.get(epic.id) ?? epic.updated_at, now })
+                  line: rowLine(row, { taken: isTaken, updated: taken?.get(epic.id) ?? epic.updated_at, now, assignee: this.reader.lead(epic.id, epic) })
                 })
               )
               .child(v_flex().pl(16).gap(2).children(tasks))
@@ -1278,14 +1319,15 @@ export default class ConportMod extends View {
   }
 
   /**
-   * Take over asks first: another session may be at the row.
+   * Take over asks first: another session may be at the row, or another person leads it — asked
+   * by that person's name, and the yes lets the agent take it over.
    * @param {Parts} ui
    */
   takeOverCard(ui) {
-    const { title, go } = /** @type {TakeOver} */ (this.takeOver)
+    const ask = takeOverAsk(/** @type {TakeOver} */ (this.takeOver))
     return ui.card([
-      ui.title(`Take over “${title}”?`),
-      ui.text(TAKE_OVER_CONFIRM),
+      ui.title(ask.title),
+      ui.text(ask.text),
       h_flex()
         .gap(6)
         .justify_end()
@@ -1302,8 +1344,9 @@ export default class ConportMod extends View {
           ui.button('take-over-yes', 'Take over', {
             primary: true,
             onClick: (_event, cx) => {
+              const pending = /** @type {TakeOver} */ (this.takeOver)
               this.takeOver = null
-              go(cx)
+              answerTakeOver(pending, cx)
               cx.notify()
             }
           })

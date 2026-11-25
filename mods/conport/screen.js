@@ -7,7 +7,7 @@ import { DEFAULT_ROLES, FIXER_TYPE } from './harness.js'
 import { refusalLine } from './refusals.js'
 import { holdState } from './session.js'
 
-/** @import { EpicTask, HandMode, IdeaRow, InWorkRow, Milestone, ProposalRow, SddTaken, SpecRow, Task } from './cli.js' */
+/** @import { Assignee, EpicTask, HandMode, IdeaRow, InWorkRow, Milestone, ProposalRow, SddTaken, SpecRow, Task } from './cli.js' */
 /** @import { Place } from './git.js' */
 /** @import { HarnessChoice, RoleKey, Roles } from './harness.js' */
 /** @import { Result } from './refusals.js' */
@@ -27,7 +27,8 @@ import { holdState } from './session.js'
 /**
  * A sheet: what an agent is opened on — an idea to brainstorm, a proposal to brainstorm, a spec to
  * plan and build, a task to do, review or fix — or a proposal to decline, which opens no agent.
- * @typedef {{kind: 'idea', idea: IdeaRow} | {kind: 'proposal', proposal: ProposalRow} | {kind: 'decline', proposal: ProposalRow} | {kind: 'spec', spec: SpecRow} | {kind: HandMode, task: Task}} Sheet
+ * `takeOver`: the person said yes to taking over an idea or the epic of a spec another person leads.
+ * @typedef {{kind: 'idea', idea: IdeaRow, takeOver?: boolean} | {kind: 'proposal', proposal: ProposalRow} | {kind: 'decline', proposal: ProposalRow} | {kind: 'spec', spec: SpecRow, takeOver?: boolean} | {kind: HandMode, task: Task}} Sheet
  */
 
 /**
@@ -184,6 +185,94 @@ export function updatedLine(iso, now) {
 export const TAKE_OVER_CONFIRM = 'Another session may be working on it'
 
 /**
+ * A person as the mod names one: by the email, else by the handle — a handle alone names no colleague.
+ * @param {Assignee} person
+ * @returns {string}
+ */
+export const personName = (person) => person.email || person.handle
+
+/**
+ * The person who leads a row when that is someone else: null for a row of the caller's (its
+ * handle is `me`) or of nobody, and for every row while the caller is unknown (`me` null: the CLI
+ * could not name it) — as in the dashboard, nobody is another person then.
+ * @param {Assignee | null | undefined} assignee
+ * @param {string | null | undefined} me
+ * @returns {Assignee | null}
+ */
+export function ledByOther(assignee, me) {
+  if (assignee === null || assignee === undefined) return null
+  if (me === null || me === undefined) return null
+  return assignee.handle === me ? null : assignee
+}
+
+/**
+ * What Take over of a row asks: a row another person leads (`lead`) by that person's name, and
+ * its yes lets the agent take the task over (`takeOver`); any other row as before.
+ * @param {{title: string, lead: Assignee | null}} row
+ * @returns {{title: string, text: string, takeOver: boolean}}
+ */
+export function takeOverAsk({ title, lead }) {
+  if (lead === null) return { title: `Take over “${title}”?`, text: TAKE_OVER_CONFIRM, takeOver: false }
+  return { title: `${personName(lead)} leads this task. Take it over?`, text: `“${title}”`, takeOver: true }
+}
+
+/**
+ * The yes to a Take over: the start it asked about runs, told whether it takes the row over from
+ * another person.
+ * @template C
+ * @param {{title: string, lead: Assignee | null, go: (cx: C, takeOver: boolean) => void}} pending
+ * @param {C} cx
+ */
+export function answerTakeOver(pending, cx) {
+  pending.go(cx, takeOverAsk(pending).takeOver)
+}
+
+/**
+ * The sheet a start of an idea or of a spec opens: with `takeOver` after a yes to taking over a
+ * row another person leads, else as it is.
+ * @template {Sheet} S
+ * @param {S} sheet
+ * @param {boolean} takeOver
+ * @returns {S}
+ */
+export const takeOverSheet = (sheet, takeOver) => (takeOver ? /** @type {S} */ ({ ...sheet, takeOver: true }) : sheet)
+
+/**
+ * The key of the start of epic `epic` of the repository `gitDir`: `<git dir>:<epic>`.
+ * @param {string} gitDir
+ * @param {number} epic
+ * @returns {string}
+ */
+export const epicStartKey = (gitDir, epic) => `${gitDir}:${epic}`
+
+/**
+ * What changes which epic, by `<git dir>:<epic>`, a start takes over from another person: `yes`
+ * — the person said yes to a Take over of the epic (`takeOver` when another person leads it);
+ * `open` — its screen opened by a press of its row; `close` — its screen closed; `project` —
+ * another project read; `started` — the start of `key` went out.
+ * @typedef {{kind: 'yes', gitDir: string | null, epic: number, takeOver: boolean} | {kind: 'open' | 'close' | 'project'} | {kind: 'started', key: string}} EpicTakeOverEvent
+ */
+
+/**
+ * The epic a start takes over after `event`, `current` the one before it: only a yes to taking
+ * over an epic another person leads names one, and it holds until that epic starts, its screen
+ * opens by a press or closes, or another project is read.
+ * @param {string | null} current
+ * @param {EpicTakeOverEvent} event
+ * @returns {string | null}
+ */
+export function takeOverEpicAfter(current, event) {
+  switch (event.kind) {
+    case 'yes':
+      return event.takeOver && event.gitDir !== null ? epicStartKey(event.gitDir, event.epic) : null
+    case 'started':
+      return current === event.key ? null : current
+    default:
+      return null
+  }
+}
+
+/**
  * The buttons of a row, by the table of the spec: an idea to do — Brainstorm; an idea or an epic
  * taken — Show terminal when this host has its terminal (`hasTab`), else Take over, whatever stage
  * the list still holds; an idea in review or back from it — Review or Fix; a blocked idea — none; a proposal — Brainstorm and Decline; a
@@ -221,13 +310,25 @@ export function rowActions(row, taken, hasTab) {
  * The line under the title of a row: a taken row by the time it was last changed (`updated`, as
  * `now` sees it); else an idea or a task by its stage (`Blocked` for a blocked one), a proposal by
  * its author, a spec by what it waits for, an epic In work by where it stands (ready to merge
- * before anything, why it cannot start), an epic outside SDD by its closed tasks.
+ * before anything, why it cannot start), an epic outside SDD by its closed tasks; then who leads
+ * it (`assignee`), when someone does.
  * @param {ActionRow} row
- * @param {{taken: boolean, updated?: string | null, now?: Date}} state
+ * @param {{taken: boolean, updated?: string | null, now?: Date, assignee?: Assignee | null}} state
  * @returns {string}
  */
-export function rowLine(row, { taken, updated = null, now = new Date() }) {
-  const progress = updatedLine(updated, now)
+export function rowLine(row, { taken, updated = null, now = new Date(), assignee = null }) {
+  const line = stageLine(row, taken, updatedLine(updated, now))
+  return assignee ? `${line} · ${personName(assignee)}` : line
+}
+
+/**
+ * The stage a row says, `progress` the line of a taken one.
+ * @param {ActionRow} row
+ * @param {boolean} taken
+ * @param {string} progress
+ * @returns {string}
+ */
+function stageLine(row, taken, progress) {
   switch (row.type) {
     case 'proposal':
       return row.author ? `Proposal · ${row.author}` : 'Proposal'

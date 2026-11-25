@@ -260,3 +260,39 @@ test('needsFullRead: a taken unlisted idea asks for no full read', async () => {
   await done
   assert.equal(r.read.lastFull, 1_000_000)
 })
+
+const ANN = { handle: 'usann2345a', email: 'ann@example.com', former_member: false }
+const BOB = { handle: 'usbob2345b', email: null, former_member: false }
+
+test('the reader names the caller and who leads a row: the light read when it names the row, else the list', async () => {
+  // Before any list: no caller; a row says its own lead.
+  const none = reader()
+  assert.equal(none.read.me(), null)
+  assert.deepEqual(none.read.lead(2117, { assignee: ANN }), ANN)
+  // A Private Team: no `me`, no assignee.
+  const own = await withList()
+  assert.equal(own.read.me(), null)
+  assert.equal(own.read.lead(2117, { id: 2117 }), null)
+  const r = await withList(LIST({ me: 'usme234567', ideas: LIST().ideas.map((idea) => ({ ...idea, assignee: idea.id === 2117 ? ANN : null })) }))
+  assert.equal(r.read.me(), 'usme234567')
+  const idea = sddSections(r.read.list.data).ideas.find((row) => row.id === 2117)
+  // The rows of the sections keep the assignee the list gave.
+  assert.deepEqual(idea.assignee, ANN)
+  assert.deepEqual(r.read.lead(2117, idea), ANN)
+  // The light read is newer: the lead it names stands, none included; without the field, the list's.
+  const done = r.read.read('taken')
+  r.cli.calls[0].answer({
+    ok: true,
+    data: {
+      project: PROJECT,
+      taken: [
+        { id: 1820, kind: 'epic', updated_at: '2026-11-17T10:00:00Z' },
+        { id: 2117, kind: 'task', updated_at: '2026-11-17T10:00:00Z', assignee: BOB }
+      ]
+    }
+  })
+  await done
+  assert.deepEqual(r.read.lead(2117, idea), BOB)
+  assert.equal(r.read.lead(1820, { assignee: null }), null)
+  assert.deepEqual(r.read.lead(1820, { assignee: ANN }), ANN)
+})

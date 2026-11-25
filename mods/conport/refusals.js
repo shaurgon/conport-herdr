@@ -49,6 +49,7 @@ export const LINES = {
   proposal_closed: ['The proposal is already answered', REFRESH],
   proposal_accepted: ['The proposal already has its idea, and the idea is taken up', REFRESH],
   reason_missing: ['No reason is given', 'write why the proposal is declined.'],
+  task_assigned_to_other: ['The task is led by another person', 'pick another task, or take it over on your word.'],
   root_detached: ["The repository's main working copy is not on a branch, so the epic has no base", 'check out a branch in the main working copy.'],
   role_invalid: ['The subagent type is not a plain name', 'choose a type for the role from the list.'],
   no_project: ['The repository has no ConPort project', "enter the project's name or handle."],

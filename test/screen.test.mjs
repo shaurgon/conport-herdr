@@ -5,17 +5,21 @@ import test from 'node:test'
 import { sddSections } from '../mods/conport/cli.js'
 import { DEFAULT_ROLES } from '../mods/conport/harness.js'
 import {
+  answerTakeOver,
   BUG_LABEL,
   COPY_NOTE,
   documentUrl,
+  epicStartKey,
   epicState,
   epicTaskRow,
   FIXER_NOTE,
   FULL_READ_MS,
   handNotice,
   harnessLabel,
+  ledByOther,
   NO_AGENT,
   ORCA_NOTE,
+  personName,
   plural,
   POLL_TAKEN_MS,
   pollStep,
@@ -41,6 +45,9 @@ import {
   startNotice,
   startView,
   TAKE_OVER_CONFIRM,
+  takeOverAsk,
+  takeOverEpicAfter,
+  takeOverSheet,
   takenMap,
   taskLine,
   TYPE_MISSING_NOTE,
@@ -271,6 +278,96 @@ test('rowLine: what each row says under its title', () => {
   // An epic outside SDD by its closed tasks.
   assert.equal(rowLine(epic({ section: 'outside' }), { taken: false }), '2 of 3 closed')
   assert.equal(rowLine(epic({ section: 'outside' }), { taken: true, updated: at, now }), 'In progress · updated 09:30')
+})
+
+const ANN = { handle: 'usann2345a', email: 'ann@example.com', former_member: false }
+const ME = 'usme234567'
+
+test('rows show the assignee name', () => {
+  const now = new Date(2026, 10, 17, 12, 0)
+  const at = new Date(2026, 10, 17, 9, 30).toISOString()
+  const epic = (extra = {}) => ({ type: 'epic', section: 'in_work', status: 'TODO', reason: null, ready: false, progress: { open: 1, total: 3 }, ...extra })
+  const idea = { type: 'idea', kind: 'bug', status: 'IN_PROGRESS', priority: 2, changes_requested: false, mode: null }
+  assert.equal(rowLine(idea, { taken: true, updated: at, now, assignee: ANN }), `${BUG_LABEL} · In progress · updated 09:30 · ann@example.com`)
+  assert.equal(rowLine({ ...idea, kind: 'task', status: 'TODO' }, { taken: false, assignee: ANN }), 'High · not started · ann@example.com')
+  assert.equal(rowLine({ type: 'task', status: 'TODO', mode: 'do', kind: 'task', priority: 2 }, { taken: false, assignee: ANN }), 'High · not started · ann@example.com')
+  assert.equal(rowLine({ type: 'spec', epic: 1597, priority: 3 }, { taken: true, updated: at, now, assignee: ANN }), 'In progress · updated 09:30 · ann@example.com')
+  assert.equal(rowLine(epic(), { taken: true, updated: at, now, assignee: ANN }), 'In progress · updated 09:30 · ann@example.com')
+  assert.equal(rowLine(epic({ section: 'outside' }), { taken: false, assignee: ANN }), '2 of 3 closed · ann@example.com')
+  // A person without an email is named by the handle; a row nobody leads says what it said.
+  assert.equal(rowLine(epic(), { taken: false, assignee: { ...ANN, email: null } }), 'In progress · 2 of 3 closed · usann2345a')
+  assert.equal(rowLine(epic(), { taken: false, assignee: null }), 'In progress · 2 of 3 closed')
+  assert.equal(rowLine(epic(), { taken: false }), 'In progress · 2 of 3 closed')
+  assert.equal(personName(ANN), 'ann@example.com')
+  assert.equal(personName({ ...ANN, email: null }), 'usann2345a')
+})
+
+test('a foreign taken row asks "<name> leads this task. Take it over?" and its yes takes it over', () => {
+  const lead = ledByOther(ANN, ME)
+  assert.deepEqual(lead, ANN)
+  assert.deepEqual(takeOverAsk({ title: 'Check the backups', lead }), {
+    title: 'ann@example.com leads this task. Take it over?',
+    text: '“Check the backups”',
+    takeOver: true
+  })
+})
+
+test('a caller the CLI could not name makes no row foreign: today\'s Take over, no take over', () => {
+  // As in the dashboard: with `me` unknown nobody is another person.
+  for (const me of [null, undefined]) {
+    const lead = ledByOther(ANN, me)
+    assert.equal(lead, null)
+    assert.deepEqual(takeOverAsk({ title: 'Check the backups', lead }), {
+      title: 'Take over “Check the backups”?',
+      text: TAKE_OVER_CONFIRM,
+      takeOver: false
+    })
+  }
+})
+
+test('an own taken row keeps today\'s Take over', () => {
+  // Led by the caller, or by nobody: the question of today, and no take over.
+  for (const assignee of [{ ...ANN, handle: ME }, null, undefined]) {
+    const lead = ledByOther(assignee, ME)
+    assert.equal(lead, null)
+    assert.deepEqual(takeOverAsk({ title: 'Check the backups', lead }), {
+      title: 'Take over “Check the backups”?',
+      text: TAKE_OVER_CONFIRM,
+      takeOver: false
+    })
+  }
+})
+
+test('the yes to a Take over reaches the sheet: a row another person leads takes over, an own row does not', () => {
+  const idea = { id: 2117, kind: 'task', title: 'Check the backups', status: 'IN_PROGRESS', priority: 3, changes_requested: false }
+  for (const [lead, over] of [[ANN, true], [null, false]]) {
+    // As main.js wires it: the yes answers the pending question, whose start opens the sheet.
+    const opened = []
+    answerTakeOver({ title: idea.title, lead, go: (cx, takeOver) => opened.push([cx, takeOverSheet({ kind: 'idea', idea }, takeOver)]) }, 'cx')
+    assert.deepEqual(opened, [['cx', over ? { kind: 'idea', idea, takeOver: true } : { kind: 'idea', idea }]], String(over))
+  }
+  // A spec the same; an own sheet carries no flag at all.
+  const spec = { doc: 22, title: 'Audit log', idea: null, priority: 3, epic: 9, status: 'IN_PROGRESS' }
+  assert.deepEqual(takeOverSheet({ kind: 'spec', spec }, true), { kind: 'spec', spec, takeOver: true })
+  assert.ok(!('takeOver' in takeOverSheet({ kind: 'spec', spec }, false)))
+})
+
+test('the epic a start takes over: named by a yes for an epic another person leads, until its start, a press, a close or another project', () => {
+  const GIT = '/r/.git'
+  const key = epicStartKey(GIT, 7)
+  assert.equal(key, '/r/.git:7')
+  // The yes to taking over epic 7 from Ann names it, as main.js wires it.
+  let current = null
+  answerTakeOver({ title: 'Search', lead: ANN, go: (_cx, takeOver) => (current = takeOverEpicAfter(current, { kind: 'yes', gitDir: GIT, epic: 7, takeOver })) }, null)
+  assert.equal(current, key)
+  // A yes for an own epic, or with no repository, names none.
+  assert.equal(takeOverEpicAfter(key, { kind: 'yes', gitDir: GIT, epic: 7, takeOver: false }), null)
+  assert.equal(takeOverEpicAfter(null, { kind: 'yes', gitDir: null, epic: 7, takeOver: true }), null)
+  // The start of epic 7 takes it over once; the start of another epic keeps it.
+  assert.equal(takeOverEpicAfter(key, { kind: 'started', key: epicStartKey(GIT, 8) }), key)
+  assert.equal(takeOverEpicAfter(key, { kind: 'started', key }), null)
+  // A press of the row, a close of the screen or another project: nothing is taken over.
+  for (const kind of ['open', 'close', 'project']) assert.equal(takeOverEpicAfter(key, { kind }), null, kind)
 })
 
 test('TAKE_OVER_CONFIRM and skippedLine are the words of the spec', () => {

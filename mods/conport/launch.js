@@ -26,28 +26,37 @@ import { agentKey, rememberStart } from './state.js'
  */
 
 /**
- * The arguments, after `npx -y conport@<V>`, of the task of the lead session of an epic: its
- * copy, its base and the four role types (the CLI tells them only to Claude Code).
- * @param {{epic: number, project: string, harness: string, worktree: string, base: string, roles?: Partial<Roles>}} task
+ * The end of every `conport prompt` command line: `--take-over` when the person said yes to
+ * taking over a row another person leads, then `--json`, always last.
+ * @param {boolean | undefined} takeOver
  * @returns {string[]}
  */
-export function epicPromptArgs({ epic, project, harness, worktree, base, roles = DEFAULT_ROLES }) {
+const promptTail = (takeOver) => (takeOver === true ? ['--take-over', '--json'] : ['--json'])
+
+/**
+ * The arguments, after `npx -y conport@<V>`, of the task of the lead session of an epic: its
+ * copy, its base and the four role types (the CLI tells them only to Claude Code); `takeOver`
+ * when the person said yes to taking over an epic another person leads.
+ * @param {{epic: number, project: string, harness: string, worktree: string, base: string, roles?: Partial<Roles>, takeOver?: boolean}} task
+ * @returns {string[]}
+ */
+export function epicPromptArgs({ epic, project, harness, worktree, base, roles = DEFAULT_ROLES, takeOver }) {
   const types = { ...DEFAULT_ROLES, ...roles }
   return [
     'prompt', 'epic', String(epic), '-p', project, '--harness', harness, '--worktree', worktree, '--base', base,
     '--implementer', types.implementer, '--reviewer', types.reviewer, '--gap-hunter', types.gapHunter,
-    '--final-reviewer', types.finalReviewer, '--json'
+    '--final-reviewer', types.finalReviewer, ...promptTail(takeOver)
   ]
 }
 
 /**
  * The arguments of the task of an agent that does, reviews or fixes an idea or a task of an epic
  * outside SDD.
- * @param {{task: number, project: string, mode: string, agent: string, root: string}} task
+ * @param {{task: number, project: string, mode: string, agent: string, root: string, takeOver?: boolean}} task
  * @returns {string[]}
  */
-export function taskPromptArgs({ task, project, mode, agent, root }) {
-  return ['prompt', 'task', String(task), '-p', project, '--host', 'herdr', '--mode', mode, '--agent', agent, '--root', root, '--json']
+export function taskPromptArgs({ task, project, mode, agent, root, takeOver }) {
+  return ['prompt', 'task', String(task), '-p', project, '--host', 'herdr', '--mode', mode, '--agent', agent, '--root', root, ...promptTail(takeOver)]
 }
 
 /**
@@ -57,22 +66,22 @@ export function taskPromptArgs({ task, project, mode, agent, root }) {
 
 /**
  * The arguments of the task of an agent that brainstorms idea `task` with the person.
- * @param {{task: number, project: string, agent: string, root: string}} task
+ * @param {{task: number, project: string, agent: string, root: string, takeOver?: boolean}} task
  * @returns {string[]}
  */
-export function ideaPromptArgs({ task, project, agent, root }) {
-  return ['prompt', 'idea', String(task), '-p', project, '--host', 'herdr', '--agent', agent, '--root', root, '--json']
+export function ideaPromptArgs({ task, project, agent, root, takeOver }) {
+  return ['prompt', 'idea', String(task), '-p', project, '--host', 'herdr', '--agent', agent, '--root', root, ...promptTail(takeOver)]
 }
 
 /**
  * The arguments of the task of an agent that plans a spec and builds it: `doc-<N>` for a spec
  * document, `task-<N>` for an epic; `base` the branch of the main checkout.
- * @param {{target: SpecTarget, project: string, agent: string, root: string, base: string}} task
+ * @param {{target: SpecTarget, project: string, agent: string, root: string, base: string, takeOver?: boolean}} task
  * @returns {string[]}
  */
-export function specPromptArgs({ target, project, agent, root, base }) {
+export function specPromptArgs({ target, project, agent, root, base, takeOver }) {
   const subject = 'doc' in target ? `doc-${target.doc}` : `task-${target.epic}`
-  return ['prompt', 'spec', subject, '-p', project, '--host', 'herdr', '--agent', agent, '--root', root, '--base', base, '--json']
+  return ['prompt', 'spec', subject, '-p', project, '--host', 'herdr', '--agent', agent, '--root', root, '--base', base, ...promptTail(takeOver)]
 }
 
 /**
@@ -174,15 +183,16 @@ export async function readPlace(exec, { folder, epic, home }) {
  *
  * `deps`: Herdr's `exec` and `run`, `setShared`, the home folder `home`, and its live data as
  * functions (`spaces`, `panes`, `agents`), read once the copy is there.
- * `input`: `{epic, project, harness, roles, folder, gitDir, knownAgents}` — `folder` is any
- * folder of the repository, `gitDir` its absolute git directory.
+ * `input`: `{epic, project, harness, roles, folder, gitDir, knownAgents, takeOver}` — `folder` is
+ * any folder of the repository, `gitDir` its absolute git directory, `takeOver` the person's yes
+ * to taking over an epic another person leads.
  * @param {{exec: Exec, run: Run, setShared: SetShared, home: string, spaces: () => SpaceInfo[], panes: () => PaneInfo[], agents: () => AgentInfo[]}} deps
- * @param {{epic: number, project: string, harness: string, roles?: Partial<Roles>, folder: string, gitDir: string, knownAgents: KnownAgent[]}} input
+ * @param {{epic: number, project: string, harness: string, roles?: Partial<Roles>, folder: string, gitDir: string, knownAgents: KnownAgent[], takeOver?: boolean}} input
  * @returns {Promise<Result<{worktree: string, base: string, copy: Place['copy'], command: 'space.new' | 'tab.new', space: string | null}>>}
  */
 export async function startEpic(deps, input) {
   const { exec, run, setShared, home } = deps
-  const { epic, project, harness, folder, gitDir, knownAgents } = input
+  const { epic, project, harness, folder, gitDir, knownAgents, takeOver } = input
   const roles = { ...DEFAULT_ROLES, ...input.roles }
 
   const command = harnessRun(knownAgents, harness)
@@ -192,7 +202,7 @@ export async function startEpic(deps, input) {
   if (place.ok === false) return place
   const { root, worktree, base, copy } = place.data
 
-  const answer = await runCli(exec, epicPromptArgs({ epic, project, harness, worktree, base, roles }), root)
+  const answer = await runCli(exec, epicPromptArgs({ epic, project, harness, worktree, base, roles, takeOver }), root)
   if (answer.ok === false) return answer
   const text = answer.data?.text
   if (typeof text !== 'string' || text === '') {
@@ -237,8 +247,9 @@ export async function handToAgent(deps, input) {
 }
 
 /**
- * What a start in the root needs, besides Herdr's functions.
- * @typedef {{agent: string, project: string, root: string, gitDir: string, knownAgents: KnownAgent[]}} RootStart
+ * What a start in the root needs, besides Herdr's functions; `takeOver` the person's yes to taking
+ * over an idea or the epic of a spec another person leads.
+ * @typedef {{agent: string, project: string, root: string, gitDir: string, knownAgents: KnownAgent[], takeOver?: boolean}} RootStart
  */
 
 /**
@@ -294,8 +305,8 @@ async function openInRoot(deps, { agent, root, gitDir, knownAgents, name, args }
  * @returns {Promise<Result<Opened>>}
  */
 export async function startIdea(deps, input) {
-  const { task, project, agent, root } = input
-  return openInRoot(deps, { ...input, name: `idea-${task}`, args: () => ({ ok: true, data: ideaPromptArgs({ task, project, agent, root }) }) })
+  const { task, project, agent, root, takeOver } = input
+  return openInRoot(deps, { ...input, name: `idea-${task}`, args: () => ({ ok: true, data: ideaPromptArgs({ task, project, agent, root, takeOver }) }) })
 }
 
 /**
@@ -307,14 +318,14 @@ export async function startIdea(deps, input) {
  * @returns {Promise<Result<Opened>>}
  */
 export async function startSpec(deps, input) {
-  const { target, project, agent, root } = input
+  const { target, project, agent, root, takeOver } = input
   const name = 'doc' in target ? `doc-${target.doc}` : `plan-${target.epic}`
   return openInRoot(deps, {
     ...input,
     name,
     args: (checkouts) => {
       const main = mainCheckout(checkouts)
-      return main.ok === false ? main : { ok: true, data: specPromptArgs({ target, project, agent, root, base: main.data.base }) }
+      return main.ok === false ? main : { ok: true, data: specPromptArgs({ target, project, agent, root, base: main.data.base, takeOver }) }
     }
   })
 }

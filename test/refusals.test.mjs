@@ -45,6 +45,12 @@ test('epic_not_ready names the Specs section; the new codes have one action each
   }
 })
 
+test('task_assigned_to_other has one line', () => {
+  assert.deepEqual(LINES.task_assigned_to_other, ['The task is led by another person', 'pick another task, or take it over on your word.'])
+  // The CLI's English never reaches the person: the mod says it in its own words, one action.
+  assert.equal(line('task_assigned_to_other'), 'The task is led by another person — pick another task, or take it over on your word.')
+})
+
 test('npx_missing carries the text of the rejection: exec rejects alike for a missing folder', () => {
   assert.equal(
     refusalLine({ code: 'npx_missing', fact: 'No such file or directory (os error 2)', action: 'x' }),
