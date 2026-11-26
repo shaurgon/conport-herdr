@@ -2,7 +2,7 @@
 // setTimeout: they run inside Herdr.
 
 /** The version of the mod: a copy of `version` in mod.json (a module reads no files). */
-export const MOD_VERSION = '0.6.0'
+export const MOD_VERSION = '0.6.2'
 
 /** The conport CLI release the mod runs, as `npx -y conport@<CLI_VERSION>`: an exact version. */
-export const CLI_VERSION = '0.17.0'
+export const CLI_VERSION = '0.18.0'
