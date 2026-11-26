@@ -18,9 +18,9 @@ agent that builds or installs it.
 
 - Herdr app 0.1.15 or later.
 - `npx` (Node.js 18 or later) and `git` in Herdr's environment.
-- A ConPort API key: `CONPORT_API_KEY=<key>` in `~/.config/conport/.env` (or in
-  the environment Herdr runs in). The mod never reads or shows the key; the CLI
-  reads it itself.
+- A ConPort API key: the key alone on one line in `~/.config/conport/conport.key`
+  (or `CONPORT_API_KEY` in the environment Herdr runs in). The mod never reads
+  or shows the key; the CLI reads it itself.
 - Claude Code, Codex or Cursor. With Claude Code, the conport plugin gives the
   default subagent types of the four roles of an epic.
 - Orca's conport plugin 0.9.0 or later and the Herdr mod 0.4.0 or later go

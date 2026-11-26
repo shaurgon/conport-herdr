@@ -18,7 +18,6 @@ import {
   pickProject,
   projectBinding,
   readBindingTexts,
-  readConfigHome,
   readErrorCode,
   SETTINGS_GIT_TIMEOUT_MS,
   settleFollow,
@@ -115,7 +114,7 @@ test('pickProject: the project of the focused space first, else the last chosen,
 })
 
 /** The texts of a repository with nothing in them, `patch` over it. */
-const texts = (patch = {}) => ({ shared: null, local: null, localIgnored: null, legacy: null, userEnv: null, ...patch })
+const texts = (patch = {}) => ({ shared: null, local: null, localIgnored: null, legacy: null, ...patch })
 const legacy = (/** @type {unknown} */ name) => JSON.stringify({ env: { CONPORT_PROJECT_NAME: name }, permissions: {} })
 
 test('the binding comes from .conport.json', () => {
@@ -192,10 +191,10 @@ test('settings lines travel with the binding', () => {
     blocked: true, mainCheckout: true
   })
   // A line that does not block rides along with whichever source named the project.
-  assert.deepEqual(projectBinding(texts({ userEnv: 'CONPORT_API_KEY=x\nCONPORT_PROJECT_NAME=acme\n' }), 'acme'), {
+  assert.deepEqual(projectBinding(texts({ local: '{"units": []}', localIgnored: true }), 'acme'), {
     project: 'acme',
     source: 'stored',
-    lines: ['CONPORT_PROJECT_NAME in ~/.config/conport/.env is not read: it would apply to every repository — remove it'],
+    lines: ['units is read from .conport.json only'],
     blocked: false, mainCheckout: true
   })
 })
@@ -242,28 +241,24 @@ const execRecorder = () => {
 test('the settings files are read from the main checkout, the personal one asked of git only when it is there', async (t) => {
   const top = scratch(t)
   const root = repository(join(top, 'acme'))
-  const home = join(top, 'home')
-  mkdirSync(join(home, '.config', 'conport'), { recursive: true })
-  writeFileSync(join(home, '.config', 'conport', '.env'), 'CONPORT_PROJECT_NAME=acme\n')
   writeFileSync(join(root, '.conport.json'), JSON.stringify({ project_name: 'prk7m2qx9d' }))
   mkdirSync(join(root, '.claude'))
   writeFileSync(join(root, '.claude', 'settings.local.json'), legacy('acme-app'))
   const gitDir = git(gitDirArgs(root)).trim()
 
   const first = execRecorder()
-  assert.deepEqual(await readBindingTexts({ read: readText, exec: first.exec, gitDir, home }), {
+  assert.deepEqual(await readBindingTexts({ read: readText, exec: first.exec, gitDir }), {
     shared: JSON.stringify({ project_name: 'prk7m2qx9d' }),
     local: null,
     localIgnored: null,
     legacy: legacy('acme-app'),
-    userEnv: 'CONPORT_PROJECT_NAME=acme\n',
     mainCheckout: true
   })
   assert.deepEqual(first.calls, [])
 
   writeFileSync(join(root, '.conport.local.json'), JSON.stringify({ project_name: 'pers/sandbox' }))
   const second = execRecorder()
-  assert.equal((await readBindingTexts({ read: readText, exec: second.exec, gitDir, home })).localIgnored, false)
+  assert.equal((await readBindingTexts({ read: readText, exec: second.exec, gitDir })).localIgnored, false)
   assert.deepEqual(second.calls, [
     ['-C', root, 'ls-files', '--error-unmatch', '--', '.conport.local.json'],
     ['-C', root, 'check-ignore', '-q', '--', '.conport.local.json']
@@ -273,48 +268,33 @@ test('the settings files are read from the main checkout, the personal one asked
   assert.deepEqual(second.options, [{ timeout: 5000 }, { timeout: 5000 }])
 
   writeFileSync(join(root, '.gitignore'), '.conport.local.json\n')
-  assert.equal((await readBindingTexts({ read: readText, exec: execRecorder().exec, gitDir, home })).localIgnored, true)
+  assert.equal((await readBindingTexts({ read: readText, exec: execRecorder().exec, gitDir })).localIgnored, true)
 
   git(['add', '-f', '.conport.local.json'], root)
-  assert.equal((await readBindingTexts({ read: readText, exec: execRecorder().exec, gitDir, home })).localIgnored, false)
+  assert.equal((await readBindingTexts({ read: readText, exec: execRecorder().exec, gitDir })).localIgnored, false)
 })
 
-test('~/.config/conport/.env is looked for under XDG_CONFIG_HOME when it is set', async (t) => {
+test('only the files of the repository are read: nothing of the user config folder, no program but git', async (t) => {
   const top = scratch(t)
   const root = repository(join(top, 'acme'))
   const gitDir = git(gitDirArgs(root)).trim()
-  const home = join(top, 'home')
-  const xdg = join(top, 'xdg')
-  mkdirSync(join(home, '.config', 'conport'), { recursive: true })
-  mkdirSync(join(xdg, 'conport'), { recursive: true })
-  writeFileSync(join(home, '.config', 'conport', '.env'), 'CONPORT_PROJECT_NAME=home\n')
-  writeFileSync(join(xdg, 'conport', '.env'), 'CONPORT_PROJECT_NAME=xdg\n')
-  const read = (/** @type {string | null} */ configHome) =>
-    readBindingTexts({ read: readText, exec: execRecorder().exec, gitDir, home, configHome })
-  assert.equal((await read(xdg)).userEnv, 'CONPORT_PROJECT_NAME=xdg\n')
-  assert.equal((await read(`${xdg}/`)).userEnv, 'CONPORT_PROJECT_NAME=xdg\n')
-  assert.equal((await read(null)).userEnv, 'CONPORT_PROJECT_NAME=home\n')
-  assert.equal((await read('')).userEnv, 'CONPORT_PROJECT_NAME=home\n')
-})
-
-test("XDG_CONFIG_HOME is asked of the person's environment through exec", async () => {
-  /** Herdr's `exec` with the person's environment `env`, recording the calls. */
-  const withEnv = (/** @type {Record<string, string | undefined>} */ env) => {
-    const calls = []
-    const exec = async (/** @type {string} */ command, /** @type {string[]} */ args, /** @type {unknown} */ options) => {
-      calls.push([command, args, options])
-      const answer = spawnSync(command, args, { encoding: 'utf8', env })
-      return { code: answer.status ?? -1, stdout: answer.stdout, stderr: answer.stderr }
-    }
-    return { exec, calls }
+  writeFileSync(join(root, '.conport.local.json'), '{}')
+  /** @type {string[]} */
+  const asked = []
+  const read = async (/** @type {string} */ path) => {
+    asked.push(path)
+    return readText(path)
   }
-  const { PATH } = process.env
-  const set = withEnv({ PATH, XDG_CONFIG_HOME: '/work/t/xdg conf' })
-  assert.equal(await readConfigHome(set.exec), '/work/t/xdg conf')
-  assert.deepEqual(set.calls, [['printenv', ['XDG_CONFIG_HOME'], { timeout: 5000 }]])
-  assert.equal(await readConfigHome(withEnv({ PATH }).exec), null)
-  assert.equal(await readConfigHome(withEnv({ PATH, XDG_CONFIG_HOME: '' }).exec), null)
-  assert.equal(await readConfigHome(async () => { throw new Error('No such file or directory (os error 2)') }), null)
+  const { exec, calls } = execRecorder()
+  const found = await readBindingTexts({ read, exec, gitDir })
+  assert.equal('userEnv' in found, false)
+  assert.deepEqual(asked.sort(), [
+    join(root, '.claude', 'settings.local.json'),
+    join(root, '.conport.json'),
+    join(root, '.conport.local.json')
+  ])
+  // git alone is asked, about the personal file; no printenv for a config folder.
+  assert.deepEqual(calls.map((args) => args.slice(2, 3)), [['ls-files'], ['check-ignore']])
 })
 
 test('the error code of a file Herdr could not read comes from its os error', () => {
@@ -331,10 +311,9 @@ test('an unreadable .conport.json is a line, not a crash, and a submodule reads 
   const top = scratch(t)
   const root = repository(join(top, 'acme'))
   const gitDir = git(gitDirArgs(root)).trim()
-  const home = join(top, 'home')
   mkdirSync(join(root, '.conport.json'))
 
-  const found = await readBindingTexts({ read: readText, exec: execRecorder().exec, gitDir, home })
+  const found = await readBindingTexts({ read: readText, exec: execRecorder().exec, gitDir })
   assert.deepEqual(found.shared, { error: 'EISDIR' })
   assert.deepEqual(projectBinding(found, 'acme'), {
     project: null,
@@ -350,7 +329,7 @@ test('an unreadable .conport.json is a line, not a crash, and a submodule reads 
     writeFileSync(locked, JSON.stringify({ project_name: 'pers/sandbox' }))
     // The scratch folder stays writable, so the file without permission goes with it.
     chmodSync(locked, 0o000)
-    const both = await readBindingTexts({ read: readText, exec: execRecorder().exec, gitDir, home })
+    const both = await readBindingTexts({ read: readText, exec: execRecorder().exec, gitDir })
     assert.deepEqual(both.local, { error: 'EACCES' })
     assert.deepEqual(projectBinding(both, 'acme').lines, [
       '.conport.json cannot be read (EISDIR): fix it',
@@ -366,11 +345,10 @@ test('an unreadable .conport.json is a line, not a crash, and a submodule reads 
       return null
     },
     exec: execRecorder().exec,
-    gitDir: `${root}/.git/modules/lib`,
-    home
+    gitDir: `${root}/.git/modules/lib`
   })
-  assert.deepEqual(submodule, { shared: null, local: null, localIgnored: null, legacy: null, userEnv: null, mainCheckout: false })
-  assert.deepEqual(asked, [join(home, '.config', 'conport', '.env')])
+  assert.deepEqual(submodule, { shared: null, local: null, localIgnored: null, legacy: null, mainCheckout: false })
+  assert.deepEqual(asked, [])
 })
 
 test('a settings file behind a path through a file counts as absent, as one that is not there', async (t) => {
@@ -383,7 +361,7 @@ test('a settings file behind a path through a file counts as absent, as one that
     if (path.endsWith('/.conport.local.json')) throw new Error('`herdr.readTextFile`: No such file or directory (os error 2)')
     return null
   }
-  const found = await readBindingTexts({ read, exec, gitDir, home: join(top, 'home') })
+  const found = await readBindingTexts({ read, exec, gitDir })
   assert.equal(found.shared, null)
   assert.equal(found.local, null)
   assert.deepEqual(calls, [])
@@ -850,7 +828,7 @@ test('what the panel shows of a binding', () => {
 })
 
 test('a repository without a main checkout carries that to its binding', () => {
-  const bare = { shared: null, local: null, localIgnored: null, legacy: null, userEnv: null, mainCheckout: false }
+  const bare = { shared: null, local: null, localIgnored: null, legacy: null, mainCheckout: false }
   assert.deepEqual(projectBinding(bare, null), { project: null, source: null, lines: [], blocked: false, mainCheckout: false })
   assert.deepEqual(projectBinding(bare, 'acme'), { project: 'acme', source: 'stored', lines: [], blocked: false, mainCheckout: false })
 })

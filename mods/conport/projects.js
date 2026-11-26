@@ -40,10 +40,10 @@ import { LOCAL_SETTINGS_FILE, resolveSettingsVerdict, SETTINGS_FILE } from './se
 /**
  * The texts the ConPort project of a repository is found from: `.conport.json` and
  * `.conport.local.json` of its main checkout, whether git ignores the personal one (null when
- * it is not there or git cannot tell), the old place `.claude/settings.local.json` and
- * ~/.config/conport/.env; `mainCheckout` is false for a submodule or a bare repository, whose
- * files are not read (true when left out).
- * @typedef {{shared: FileText, local: FileText, localIgnored: boolean | null, legacy: string | null, userEnv: string | null, mainCheckout?: boolean}} BindingTexts
+ * it is not there or git cannot tell) and the old place `.claude/settings.local.json`;
+ * `mainCheckout` is false for a submodule or a bare repository, whose files are not read (true
+ * when left out).
+ * @typedef {{shared: FileText, local: FileText, localIgnored: boolean | null, legacy: string | null, mainCheckout?: boolean}} BindingTexts
  */
 
 /**
@@ -353,22 +353,6 @@ export function readErrorCode(error) {
 export const SETTINGS_GIT_TIMEOUT_MS = 5000
 
 /**
- * XDG_CONFIG_HOME of the person's environment, or null when it is not set. A mod has no
- * environment of its own; Herdr's `exec` runs a program with the person's.
- * @param {(command: string, args: string[], options?: {timeout?: number}) => Promise<{code: number, stdout: string}>} exec
- * @returns {Promise<string | null>}
- */
-export async function readConfigHome(exec) {
-  try {
-    const answer = await exec('printenv', ['XDG_CONFIG_HOME'], { timeout: SETTINGS_GIT_TIMEOUT_MS })
-    const value = answer.code === 0 ? answer.stdout.replace(/\r?\n$/, '') : ''
-    return value === '' ? null : value
-  } catch {
-    return null
-  }
-}
-
-/**
  * Whether git ignores the personal settings file of the checkout `root` and does not track it:
  * true, false, or null when git cannot tell.
  * @param {Exec} exec
@@ -390,17 +374,16 @@ async function localIgnored(exec, root) {
 
 /**
  * The texts the ConPort project of a repository is found from (`projectBinding`): its
- * `.conport.json` and `.conport.local.json` in the main checkout, the old place
- * `.claude/settings.local.json`, and `conport/.env` of the config folder (`configHome`, the
- * value of XDG_CONFIG_HOME, else `<home>/.config`). A file that is not there — absent, or a
+ * `.conport.json` and `.conport.local.json` in the main checkout and the old place
+ * `.claude/settings.local.json`. A file that is not there — absent, or a
  * path through a file (`ENOENT`, `ENOTDIR`) — is null; a settings file that is there but
  * cannot be read is `{error}`. git is asked whether the personal file is ignored only when it
  * is there. A repository without a main checkout reads no file of its own (`mainCheckout`
  * false).
- * @param {{read: (path: string) => Promise<string | null>, exec: Exec, gitDir: string, home: string, configHome?: string | null}} where
+ * @param {{read: (path: string) => Promise<string | null>, exec: Exec, gitDir: string}} where
  * @returns {Promise<BindingTexts>}
  */
-export async function readBindingTexts({ read, exec, gitDir, home, configHome = null }) {
+export async function readBindingTexts({ read, exec, gitDir }) {
   /** @returns {Promise<FileText>} */
   const settingsFile = async (/** @type {string} */ path) => {
     try {
@@ -419,10 +402,8 @@ export async function readBindingTexts({ read, exec, gitDir, home, configHome = 
     }
   }
   const root = mainRootOf(gitDir)
-  const config = typeof configHome === 'string' && configHome !== '' ? trimSlash(configHome) : `${trimSlash(home)}/.config`
-  const userEnv = plainFile(`${config}/conport/.env`)
   if (root === null) {
-    return { shared: null, local: null, localIgnored: null, legacy: null, userEnv: await userEnv, mainCheckout: false }
+    return { shared: null, local: null, localIgnored: null, legacy: null, mainCheckout: false }
   }
   const [shared, local, legacy] = await Promise.all([
     settingsFile(`${root}/${SETTINGS_FILE}`),
@@ -434,7 +415,6 @@ export async function readBindingTexts({ read, exec, gitDir, home, configHome = 
     local,
     localIgnored: local === null ? null : await localIgnored(exec, root),
     legacy,
-    userEnv: await userEnv,
     mainCheckout: true
   }
 }
@@ -467,8 +447,8 @@ function legacyName(text) {
  * @param {unknown} stored
  * @returns {Binding}
  */
-export function projectBinding({ shared, local, localIgnored, legacy, userEnv, mainCheckout = true }, stored) {
-  const verdict = resolveSettingsVerdict({ shared, local, localIgnored, env: {}, explicit: null, userEnv })
+export function projectBinding({ shared, local, localIgnored, legacy, mainCheckout = true }, stored) {
+  const verdict = resolveSettingsVerdict({ shared, local, localIgnored, env: {}, explicit: null })
   const { lines, blocked } = verdict
   if (verdict.project !== null) return { project: verdict.project, source: 'file', lines, blocked, mainCheckout }
   const name = blocked ? null : legacyName(legacy)

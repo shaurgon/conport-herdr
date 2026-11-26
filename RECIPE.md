@@ -202,7 +202,7 @@ color is a token of `theme()`: the panel follows the person's theme.
   the project and the open epic. A choice not started lives until the mod closes.
 - **Refusals.** One line each, what is wrong and one action:
   `npx is not found in Herdr's environment — install Node 18+ and press Refresh.`,
-  `No ConPort API key — add CONPORT_API_KEY to ~/.config/conport/.env and press Refresh.`,
+  `No ConPort API key — add the ConPort API key to ~/.config/conport/conport.key and press Refresh.`,
   `The ConPort CLI did not answer in 300 s — check the network and press Refresh.`, a
   failed `git worktree add` with git's text and
   `remove the unfinished copy with git worktree remove --force <copy> and try again.`,
@@ -241,11 +241,9 @@ color is a token of `theme()`: the panel follows the person's theme.
   `for-each-ref`, `rev-parse --path-format=absolute --git-common-dir`,
   `worktree add` (timeout 600 s), and, only when `.conport.local.json` is
   there, `ls-files --error-unmatch` and `check-ignore -q` of it (timeout 5 s
-  each); `printenv XDG_CONFIG_HOME` (timeout 5 s), since a mod has no
-  environment of its own. It reads `.conport.json`, `.conport.local.json` and
-  `.claude/settings.local.json` of the repository's main checkout, and
-  `conport/.env` in `$XDG_CONFIG_HOME` (else `~/.config`) only to tell whether
-  it sets `CONPORT_PROJECT_NAME`. `readTextFile` answers null for a file that
+  each). It reads `.conport.json`, `.conport.local.json` and
+  `.claude/settings.local.json` of the repository's main checkout and nothing
+  of `~/.config/conport/`. `readTextFile` answers null for a file that
   is not there and rejects with `… (os error N)` for one it cannot read (a
   folder: 21, no permission: 13); the mod names that `EISDIR`, `EACCES`, else
   `EIO`, and takes `ENOENT` (2) and `ENOTDIR` (20) as a file that is not
@@ -255,7 +253,7 @@ color is a token of `theme()`: the panel follows the person's theme.
 
 - The mod runs programs and reaches the network: tell the person before adding
   it. It never uses, shows or sends the ConPort API key; the CLI reads it from
-  its environment or `~/.config/conport/.env`.
+  its environment or `~/.config/conport/conport.key`.
 - Pass an agent's task as the last element of `argv`, never in `task`: Herdr
   drops the first message of an agent not ready within 60 seconds, and Claude
   Code in a new folder first asks whether to trust it.

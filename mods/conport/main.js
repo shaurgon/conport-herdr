@@ -32,7 +32,6 @@ import {
   pickProject,
   projectBinding,
   readBindingTexts,
-  readConfigHome,
   settleFollow,
   spaceFolders
 } from './projects.js'
@@ -381,13 +380,7 @@ export default class ConportMod extends View {
     const project = this.current()
     this.loadedFor = project?.gitDir ?? null
     if (project === null) return
-    const texts = await readBindingTexts({
-      read: readTextFile,
-      exec,
-      gitDir: project.gitDir,
-      home: home(),
-      configHome: await readConfigHome(exec)
-    })
+    const texts = await readBindingTexts({ read: readTextFile, exec, gitDir: project.gitDir })
     if (mine !== this.projectLoad) return
     this.binding = projectBinding(texts, shared(bindingKey(project.gitDir)))
     cx.notify()

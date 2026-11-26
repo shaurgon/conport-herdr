@@ -8,7 +8,7 @@ const line = (code, extra = {}) => refusalLine({ code, fact: 'an English fact', 
 
 test('each refusal of the spec is one English line with what is wrong and one action', () => {
   const lines = {
-    no_api_key: 'No ConPort API key — add CONPORT_API_KEY to ~/.config/conport/.env and press Refresh.',
+    no_api_key: 'No ConPort API key — add the ConPort API key to ~/.config/conport/conport.key and press Refresh.',
     cli_timeout: 'The ConPort CLI did not answer in 300 s — check the network and press Refresh.',
     epic_not_found: 'The epic is not among the open epics of the project — press Refresh.',
     task_not_found: 'The task is neither an idea nor a task of an epic outside SDD — press Refresh.',

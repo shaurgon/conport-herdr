@@ -2,7 +2,7 @@
 // shared by the team, and `.conport.local.json` beside it, ignored by git, for personal
 // overrides. A copy of the rules of the conport plugin, kept to the same cases: the test runs
 // the `resolve` group of the plugin's fixture against it. Pure functions over the texts of the
-// two files, the environment and ~/.config/conport/.env; the mod reads the files itself.
+// two files and the environment; the mod reads the files itself.
 
 /**
  * A file as the reader found it: its text, null when there is none, `{error}` when it is there
@@ -11,14 +11,14 @@
  */
 
 /**
- * What the rules read: both files, whether git ignores the personal one, the environment, an
- * explicit project and the text of ~/.config/conport/.env.
- * @typedef {{shared: FileText, local: FileText, localIgnored?: boolean | null, env?: Record<string, unknown> | null, explicit?: string | null, userEnv?: string | null}} SettingsInput
+ * What the rules read: both files, whether git ignores the personal one, the environment and an
+ * explicit project.
+ * @typedef {{shared: FileText, local: FileText, localIgnored?: boolean | null, env?: Record<string, unknown> | null, explicit?: string | null}} SettingsInput
  */
 
 /**
  * The settings the files give.
- * @typedef {{plugins: Record<string, boolean>, arch: Record<string, unknown>, units?: unknown[]}} Settings
+ * @typedef {{plugins: Record<string, boolean>, arch: Record<string, unknown>, units?: unknown[], root?: string, roots?: Record<string, string>}} Settings
  */
 
 /**
@@ -29,7 +29,7 @@
 /**
  * One file read by the rules: its lines, the keys that passed, whether it names no project at
  * all (`blocks`) and the project it names.
- * @typedef {{readError: string | null, lines: string[], values: {plugins?: Record<string, boolean>, arch?: Record<string, unknown>, units?: unknown[]}, blocks: boolean, name: string | null}} FileRead
+ * @typedef {{readError: string | null, lines: string[], values: {plugins?: Record<string, boolean>, arch?: Record<string, unknown>, units?: unknown[], root?: string, roots?: Record<string, string>}, blocks: boolean, name: string | null}} FileRead
  */
 
 export const SETTINGS_FILE = '.conport.json'
@@ -47,8 +47,14 @@ const TYPE_WORDS = {
   arch: 'an object',
   'arch.ignore': 'a list of path patterns or {"path", "reason"} objects',
   'arch.git': 'true or false',
-  units: 'a list'
+  units: 'a list',
+  root: 'a root name: lower-case letters, digits and -, up to 32 characters, not none',
+  roots: 'an object of root names and paths'
 }
+
+// The name of a root of the project: lower-case letters, digits and -, up to 32 characters, not
+// `none` (which names "no root" where a root is asked for).
+const ROOT_NAME = /^(?!none$)[a-z0-9][a-z0-9-]{0,31}$/
 
 // --- JSON ----------------------------------------------------------------------------------------
 
@@ -309,6 +315,29 @@ function isIgnoreEntry(e) {
 const has = (/** @type {object} */ obj, /** @type {string} */ key) => Object.prototype.hasOwnProperty.call(obj, key)
 
 /**
+ * @param {unknown} v
+ * @returns {v is string}
+ */
+const isRootName = (v) => typeof v === 'string' && ROOT_NAME.test(v)
+
+/**
+ * The paths of the other roots, as written: an object of root names and non-blank strings, or
+ * null when one entry is not — the whole key is dropped.
+ * @param {unknown} v
+ * @returns {Record<string, string> | null}
+ */
+function readRoots(v) {
+  if (!isObject(v)) return null
+  /** @type {Record<string, string>} */
+  const roots = {}
+  for (const [name, p] of Object.entries(/** @type {Record<string, unknown>} */ (v))) {
+    if (!isRootName(name) || typeof p !== 'string' || !p.trim()) return null
+    roots[name] = p
+  }
+  return roots
+}
+
+/**
  * One file's text read by the rules.
  * @param {string} file
  * @param {FileText} input
@@ -343,7 +372,7 @@ function readFile(file, input, isLocal) {
   const data = /** @type {Record<string, any>} */ (scrub(parsed, found))
   if (found.any) {
     out.lines.push(
-      `${file} holds an API key: revoke it at https://me.conport.app/dashboard/connect, create a new one and keep it in ~/.config/conport/.env`
+      `${file} holds an API key: revoke it at https://me.conport.app/dashboard/connect, create a new one and keep it in ~/.config/conport/conport.key`
     )
   }
   if (nameIsKey) out.blocks = true
@@ -398,21 +427,23 @@ function readFile(file, input, isLocal) {
       if (Array.isArray(data.units)) out.values.units = data.units
       else wrong('units')
     }
+    if (has(data, 'root')) {
+      if (isRootName(data.root)) out.values.root = data.root
+      else wrong('root')
+    }
+    if (has(data, 'roots')) out.lines.push(`roots is read from ${LOCAL_SETTINGS_FILE} only`)
   } else {
     for (const k of ['arch', 'units']) {
       if (has(data, k)) out.lines.push(`${k} is read from .conport.json only`)
     }
+    if (has(data, 'root')) out.lines.push(`remove root from ${LOCAL_SETTINGS_FILE} — the root is set by ${SETTINGS_FILE}`)
+    if (has(data, 'roots')) {
+      const roots = readRoots(data.roots)
+      if (roots) out.values.roots = roots
+      else wrong('roots')
+    }
   }
   return out
-}
-
-/**
- * Whether the text of ~/.config/conport/.env assigns CONPORT_PROJECT_NAME.
- * @param {unknown} text
- */
-function userEnvNamesProject(text) {
-  if (typeof text !== 'string') return false
-  return text.split(/\r?\n/).some((l) => /^\s*(export\s+)?CONPORT_PROJECT_NAME\s*=/.test(l))
 }
 
 /** @param {Record<string, unknown> | null | undefined} env */
@@ -442,6 +473,8 @@ export function resolveSettingsVerdict(input) {
   /** @type {Settings} */
   const settings = { plugins, arch: { ...(shared.values.arch || {}) } }
   if (shared.values.units) settings.units = shared.values.units
+  if (shared.values.root !== undefined) settings.root = shared.values.root
+  if (local.values.roots) settings.roots = local.values.roots
 
   /** @type {string | null} */
   let project = null
@@ -478,9 +511,6 @@ export function resolveSettingsVerdict(input) {
       source = 'CONPORT_PROJECT_NAME'
     }
   }
-  if (userEnvNamesProject(input.userEnv)) {
-    lines.push('CONPORT_PROJECT_NAME in ~/.config/conport/.env is not read: it would apply to every repository — remove it')
-  }
   return { project, source, settings, lines, blocked }
 }
 
@@ -490,7 +520,6 @@ export function resolveSettingsVerdict(input) {
  * personal file over the shared one), then from CONPORT_PROJECT_NAME when no file names one. A
  * file that exists but is broken (unreadable, not JSON, not an object, a bad project_name) names
  * no project, and neither the other file nor the variable stands in for it.
- * ~/.config/conport/.env never names it.
  * @param {SettingsInput} input
  * @returns {Resolved}
  */
